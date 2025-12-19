@@ -44,13 +44,24 @@ async function maybeAuth(req, res, next) {
 
 /**
  * ADMIN CHECK helper:
- * This implementation expects a collection "admins" where documents named by UID contain { role: "admin" }.
+ * Updated to check "users" collection by email instead of "admins" collection by UID.
+ * Document ID is sanitized email (lowercase, non-alphanumeric replaced with underscore).
  */
-async function isAdminUid(uid) {
-  if (!uid) return false;
+async function isAdminUid(uid, email) {
+  if (!uid || !email) return false;
   try {
-    const doc = await db.collection("admins").doc(uid).get();
-    return doc.exists && doc.data() && doc.data().role === "admin";
+    // Sanitize email the same way frontend does: lowercase and replace non-alphanumeric with underscore
+    const emailDocId = email.toLowerCase().replace(/[^a-z0-9]/g, "_");
+    const userDoc = await db.collection("users").doc(emailDocId).get();
+    
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      // Verify UID matches (extra security check)
+      if (userData.uid === uid && userData.role === "admin") {
+        return true;
+      }
+    }
+    return false;
   } catch (err) {
     console.error("isAdminUid err", err);
     return false;
@@ -71,7 +82,10 @@ const razorpay = new Razorpay({
 app.post("/api/admin/products", maybeAuth, async (req, res) => {
   try {
     const uid = req.user ? req.user.uid : null;
-    if (!uid || !(await isAdminUid(uid))) return res.status(403).json({ error: "forbidden" });
+    const email = req.user ? req.user.email : null;
+    if (!uid || !email || !(await isAdminUid(uid, email))) {
+      return res.status(403).json({ error: "forbidden" });
+    }
 
     const product = req.body.product;
     if (!product || !product.name || typeof product.price === "undefined") {
@@ -189,7 +203,8 @@ if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== "") {
 app.patch("/api/admin/products/:id", maybeAuth, async (req, res) => {
   try {
     const uid = req.user ? req.user.uid : null;
-    if (!uid || !(await isAdminUid(uid))) {
+    const email = req.user ? req.user.email : null;
+    if (!uid || !email || !(await isAdminUid(uid, email))) {
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -219,7 +234,8 @@ app.patch("/api/admin/products/:id", maybeAuth, async (req, res) => {
 app.delete("/api/admin/products/:id", maybeAuth, async (req, res) => {
   try {
     const uid = req.user ? req.user.uid : null;
-    if (!uid || !(await isAdminUid(uid))) {
+    const email = req.user ? req.user.email : null;
+    if (!uid || !email || !(await isAdminUid(uid, email))) {
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -246,7 +262,10 @@ app.delete("/api/admin/products/:id", maybeAuth, async (req, res) => {
 app.get("/api/admin/orders", maybeAuth, async (req, res) => {
   try {
     const uid = req.user ? req.user.uid : null;
-    if (!uid || !(await isAdminUid(uid))) return res.status(403).json({ error: "forbidden" });
+    const email = req.user ? req.user.email : null;
+    if (!uid || !email || !(await isAdminUid(uid, email))) {
+      return res.status(403).json({ error: "forbidden" });
+    }
 
     const limitParam = parseInt(req.query.limit, 10);
     const limitN = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 100;
@@ -269,7 +288,10 @@ app.get("/api/admin/orders", maybeAuth, async (req, res) => {
 app.get("/api/admin/orders/:id", maybeAuth, async (req, res) => {
   try {
     const uid = req.user ? req.user.uid : null;
-    if (!uid || !(await isAdminUid(uid))) return res.status(403).json({ error: "forbidden" });
+    const email = req.user ? req.user.email : null;
+    if (!uid || !email || !(await isAdminUid(uid, email))) {
+      return res.status(403).json({ error: "forbidden" });
+    }
 
     const orderId = req.params.id;
     const snap = await db.collection("orders").doc(orderId).get();
@@ -286,7 +308,10 @@ app.get("/api/admin/orders/:id", maybeAuth, async (req, res) => {
 app.patch("/api/admin/orders/:id", maybeAuth, async (req, res) => {
   try {
     const uid = req.user ? req.user.uid : null;
-    if (!uid || !(await isAdminUid(uid))) return res.status(403).json({ error: "forbidden" });
+    const email = req.user ? req.user.email : null;
+    if (!uid || !email || !(await isAdminUid(uid, email))) {
+      return res.status(403).json({ error: "forbidden" });
+    }
 
     const orderId = req.params.id;
     const updates = req.body || {};
@@ -311,16 +336,7 @@ app.patch("/api/admin/orders/:id", maybeAuth, async (req, res) => {
 
 // ============================================
 // RAZORPAY PAYMENT INTEGRATION CODE
-// Copy this code and add it to your backend/index.js
 // ============================================
-
-// STEP 1: Add these require statements at the TOP of your backend/index.js (after other requires)
-
-
-// STEP 2: Initialize Razorpay (add this after your Firebase Admin initialization, before your routes)
-
-
-// STEP 3: Add these two endpoints AFTER your existing POST /api/orders endpoint
 
 /**
  * POST /api/orders/create-payment
@@ -603,3 +619,4 @@ app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Backend listening on ${PORT}`));
+
