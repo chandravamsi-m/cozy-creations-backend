@@ -49,21 +49,12 @@ async function maybeAuth(req, res, next) {
  * Updated to check "users" collection by email instead of "admins" collection by UID.
  * Document ID is sanitized email (lowercase, non-alphanumeric replaced with underscore).
  */
-async function isAdminUid(uid, email) {
-  if (!uid || !email) return false;
+async function isAdminUid(uid) {
+  if (!uid) return false;
   try {
-    // Sanitize email the same way frontend does: lowercase and replace non-alphanumeric with underscore
-    const emailDocId = email.toLowerCase().replace(/[^a-z0-9]/g, "_");
-    const userDoc = await db.collection("users").doc(emailDocId).get();
-
-    if (userDoc.exists) {
-      const userData = userDoc.data();
-      // Verify UID matches (extra security check)
-      if (userData.uid === uid && userData.role === "admin") {
-        return true;
-      }
-    }
-    return false;
+    // Direct lookup by UID is faster and safer
+    const userDoc = await db.collection("users").doc(uid).get();
+    return userDoc.exists && userDoc.data().role === "admin";
   } catch (err) {
     console.error("isAdminUid err", err);
     return false;
