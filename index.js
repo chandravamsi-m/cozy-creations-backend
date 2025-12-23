@@ -18,7 +18,9 @@ app.use(bodyParser.json());
  */
 if (process.env.FIREBASE_ADMIN_CRED_JSON) {
   admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_ADMIN_CRED_JSON))
+    credential: admin.credential.cert(
+      JSON.parse(process.env.FIREBASE_ADMIN_CRED_JSON)
+    ),
   });
 } else {
   admin.initializeApp();
@@ -53,7 +55,7 @@ async function isAdminUid(uid, email) {
     // Sanitize email the same way frontend does: lowercase and replace non-alphanumeric with underscore
     const emailDocId = email.toLowerCase().replace(/[^a-z0-9]/g, "_");
     const userDoc = await db.collection("users").doc(emailDocId).get();
-    
+
     if (userDoc.exists) {
       const userData = userDoc.data();
       // Verify UID matches (extra security check)
@@ -92,20 +94,38 @@ app.post("/api/admin/products", maybeAuth, async (req, res) => {
       return res.status(400).json({ error: "invalid product payload" });
     }
 
+    // Sanitize name to create ID (lowercase, snake_case)
+    // e.g. "Rose Candle" -> "rose_candle"
+    // e.g. "Summer Vibes!" -> "summer_vibes_"
+    const docId = product.name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_");
+
+    // Check if ID already exists to prevent accidental overwrites (optional but safer)
+    const existingDoc = await db.collection("products").doc(docId).get();
+    if (existingDoc.exists) {
+      return res.status(409).json({ error: "product_exists", message: "A product with a similar name already exists." });
+    }
+
     // ensure required defaults
     const now = admin.firestore.FieldValue.serverTimestamp();
-    const docRef = await db.collection("products").add({
+    
+    // keys to save
+    const newProductData = {
       ...product,
       isActive: typeof product.isActive === "boolean" ? product.isActive : true,
       createdAt: now,
       updatedAt: now,
       thumbnailUrl: product.thumbnailUrl || product.imageUrl || null,
       inventory: typeof product.inventory === "number" ? product.inventory : null,
-    });
+    };
 
-    const saved = await docRef.get();
+    // Use .doc(docId).set(...) instead of .add(...)
+    await db.collection("products").doc(docId).set(newProductData);
 
-    return res.json({ id: docRef.id, product: { id: docRef.id, ...saved.data() } });
+    // Return the new ID and data
+    return res.json({ id: docId, product: { id: docId, ...newProductData } });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "internal_error" });
@@ -116,12 +136,6 @@ app.post("/api/admin/products", maybeAuth, async (req, res) => {
  * POST /api/orders
  * Body: { items: [{ productId, quantity }], billing: {...} }
  * Header optional: Authorization: Bearer <idToken>
- *
- * Steps:
- * - verify items exist, active, and inventory
- * - compute total server-side using product.price
- * - create order doc with status: pending
- * - create Stripe PaymentIntent (if stripe configured) and return clientSecret
  */
 app.post("/api/orders", maybeAuth, async (req, res) => {
   try {
@@ -131,8 +145,10 @@ app.post("/api/orders", maybeAuth, async (req, res) => {
     }
 
     // fetch products
-    const productIds = items.map(i => i.productId);
-    const productDocs = await Promise.all(productIds.map(id => db.collection("products").doc(id).get()));
+    const productIds = items.map((i) => i.productId);
+    const productDocs = await Promise.all(
+      productIds.map((id) => db.collection("products").doc(id).get())
+    );
 
     let total = 0;
     const lineItems = [];
@@ -140,21 +156,35 @@ app.post("/api/orders", maybeAuth, async (req, res) => {
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       const pSnap = productDocs[i];
-      if (!pSnap.exists) return res.status(400).json({ error: `product ${it.productId} missing` });
+      if (!pSnap.exists)
+        return res
+          .status(400)
+          .json({ error: `product ${it.productId} missing` });
 
       const p = pSnap.data();
-      if (!p.isActive) return res.status(400).json({ error: `product ${it.productId} inactive` });
+      if (!p.isActive)
+        return res
+          .status(400)
+          .json({ error: `product ${it.productId} inactive` });
 
       const qty = parseInt(it.quantity, 10);
-      if (!qty || qty <= 0) return res.status(400).json({ error: "invalid_quantity" });
+      if (!qty || qty <= 0)
+        return res.status(400).json({ error: "invalid_quantity" });
 
       if (typeof p.inventory === "number" && p.inventory < qty) {
-        return res.status(400).json({ error: `insufficient_inventory for ${p.name}` });
+        return res
+          .status(400)
+          .json({ error: `insufficient_inventory for ${p.name}` });
       }
 
       // Price trusted from server; we assume price is whole-rupee integer
       const price = p.price;
-      lineItems.push({ productId: pSnap.id, name: p.name, price, quantity: qty });
+      lineItems.push({
+        productId: pSnap.id,
+        name: p.name,
+        price,
+        quantity: qty,
+      });
       total += price * qty;
     }
 
@@ -177,20 +207,20 @@ app.post("/api/orders", maybeAuth, async (req, res) => {
     // create Stripe PaymentIntent (if configured)
     let clientSecret = null;
 
-if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== "") {
-  try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: total * 100,
-      currency: "inr",
-      metadata: { orderId: orderRef.id }
-    });
-    await orderRef.update({ stripePaymentIntentId: paymentIntent.id });
-    clientSecret = paymentIntent.client_secret;
-  } catch (err) {
-    console.error("Stripe create PaymentIntent failed:", err.message);
-    // DO NOT break order creation — just skip Stripe
-  }
-}
+    if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== "") {
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: total * 100,
+          currency: "inr",
+          metadata: { orderId: orderRef.id },
+        });
+        await orderRef.update({ stripePaymentIntentId: paymentIntent.id });
+        clientSecret = paymentIntent.client_secret;
+      } catch (err) {
+        console.error("Stripe create PaymentIntent failed:", err.message);
+        // DO NOT break order creation — just skip Stripe
+      }
+    }
 
     return res.json({ orderId: orderRef.id, clientSecret });
   } catch (err) {
@@ -223,7 +253,6 @@ app.patch("/api/admin/products/:id", maybeAuth, async (req, res) => {
 
     const updatedDoc = await db.collection("products").doc(productId).get();
     return res.json({ id: updatedDoc.id, product: updatedDoc.data() });
-
   } catch (err) {
     console.error("UPDATE PRODUCT ERROR:", err);
     return res.status(500).json({ error: "internal_error" });
@@ -243,11 +272,10 @@ app.delete("/api/admin/products/:id", maybeAuth, async (req, res) => {
 
     await db.collection("products").doc(productId).update({
       isActive: false,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return res.json({ success: true, message: "Product deactivated" });
-
   } catch (err) {
     console.error("DELETE PRODUCT ERROR:", err);
     return res.status(500).json({ error: "internal_error" });
@@ -268,7 +296,10 @@ app.get("/api/admin/orders", maybeAuth, async (req, res) => {
     }
 
     const limitParam = parseInt(req.query.limit, 10);
-    const limitN = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 100;
+    const limitN =
+      Number.isFinite(limitParam) && limitParam > 0
+        ? Math.min(limitParam, 200)
+        : 100;
 
     const snap = await db
       .collection("orders")
@@ -315,7 +346,14 @@ app.patch("/api/admin/orders/:id", maybeAuth, async (req, res) => {
 
     const orderId = req.params.id;
     const updates = req.body || {};
-    const allowedStatuses = ["pending", "confirmed", "packed", "shipped", "delivered", "cancelled"];
+    const allowedStatuses = [
+      "pending",
+      "confirmed",
+      "packed",
+      "shipped",
+      "delivered",
+      "cancelled",
+    ];
 
     if (!updates.status || !allowedStatuses.includes(updates.status)) {
       return res.status(400).json({ error: "invalid_status" });
@@ -341,8 +379,8 @@ app.patch("/api/admin/orders/:id", maybeAuth, async (req, res) => {
 /**
  * POST /api/orders/create-payment
  * Protected: requires authentication
- * Body: { items: [{ productId, quantity, customization }], total: number }
- * 
+ * Body: { items: [{ productId, quantity, customization }], total: number, shippingAddress: object }
+ *
  * Creates a Razorpay order and returns order details for frontend
  */
 app.post("/api/orders/create-payment", maybeAuth, async (req, res) => {
@@ -350,15 +388,17 @@ app.post("/api/orders/create-payment", maybeAuth, async (req, res) => {
     const uid = req.user ? req.user.uid : null;
     if (!uid) {
       console.error("CREATE PAYMENT: No user found");
-      return res.status(401).json({ error: "unauthorized", message: "User not authenticated" });
+      return res
+        .status(401)
+        .json({ error: "unauthorized", message: "User not authenticated" });
     }
 
     // Check if Razorpay is configured
     if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
       console.error("CREATE PAYMENT: Razorpay keys not configured");
-      return res.status(500).json({ 
-        error: "payment_not_configured", 
-        message: "Razorpay keys are not configured on the server" 
+      return res.status(500).json({
+        error: "payment_not_configured",
+        message: "Razorpay keys are not configured on the server",
       });
     }
 
@@ -366,14 +406,20 @@ app.post("/api/orders/create-payment", maybeAuth, async (req, res) => {
 
     // Validate input
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: "empty_cart", message: "Cart is empty" });
+      return res
+        .status(400)
+        .json({ error: "empty_cart", message: "Cart is empty" });
     }
 
     if (!total || typeof total !== "number" || total <= 0) {
-      return res.status(400).json({ error: "invalid_total", message: "Invalid total amount" });
+      return res
+        .status(400)
+        .json({ error: "invalid_total", message: "Invalid total amount" });
     }
 
-    console.log(`CREATE PAYMENT: Processing order for user ${uid}, ${items.length} items, total: ${total}`);
+    console.log(
+      `CREATE PAYMENT: Processing order for user ${uid}, ${items.length} items, total: ${total}`
+    );
 
     // Verify products exist and are active
     const productIds = items.map((i) => i.productId);
@@ -389,30 +435,35 @@ app.post("/api/orders/create-payment", maybeAuth, async (req, res) => {
       const productDoc = productDocs[i];
 
       if (!productDoc.exists) {
-        return res.status(400).json({ 
-          error: "product_not_found", 
-          message: `Product ${item.productId} not found` 
+        return res.status(400).json({
+          error: "product_not_found",
+          message: `Product ${item.productId} not found`,
         });
       }
 
       const product = productDoc.data();
       if (!product.isActive) {
-        return res.status(400).json({ 
-          error: "product_inactive", 
-          message: `Product ${item.productId} is inactive` 
+        return res.status(400).json({
+          error: "product_inactive",
+          message: `Product ${item.productId} is inactive`,
         });
       }
 
       const quantity = parseInt(item.quantity, 10);
       if (!quantity || quantity <= 0) {
-        return res.status(400).json({ error: "invalid_quantity", message: "Invalid quantity" });
+        return res
+          .status(400)
+          .json({ error: "invalid_quantity", message: "Invalid quantity" });
       }
 
       // Check inventory if available
-      if (typeof product.inventory === "number" && product.inventory < quantity) {
-        return res.status(400).json({ 
-          error: "insufficient_inventory", 
-          message: `Insufficient inventory for ${product.name}` 
+      if (
+        typeof product.inventory === "number" &&
+        product.inventory < quantity
+      ) {
+        return res.status(400).json({
+          error: "insufficient_inventory",
+          message: `Insufficient inventory for ${product.name}`,
         });
       }
 
@@ -430,9 +481,9 @@ app.post("/api/orders/create-payment", maybeAuth, async (req, res) => {
 
     // Verify total matches (with small tolerance for rounding)
     if (Math.abs(calculatedTotal - total) > 1) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "total_mismatch",
-        message: `Calculated total (${calculatedTotal}) doesn't match provided total (${total})`
+        message: `Calculated total (${calculatedTotal}) doesn't match provided total (${total})`,
       });
     }
 
@@ -441,7 +492,9 @@ app.post("/api/orders/create-payment", maybeAuth, async (req, res) => {
     // For INR, 1 rupee = 100 paise
     const amountInPaise = Math.round(total * 100);
 
-    console.log(`CREATE PAYMENT: Creating Razorpay order for ${amountInPaise} paise`);
+    console.log(
+      `CREATE PAYMENT: Creating Razorpay order for ${amountInPaise} paise`
+    );
 
     try {
       const razorpayOrder = await razorpay.orders.create({
@@ -454,7 +507,9 @@ app.post("/api/orders/create-payment", maybeAuth, async (req, res) => {
         },
       });
 
-      console.log(`CREATE PAYMENT: Razorpay order created: ${razorpayOrder.id}`);
+      console.log(
+        `CREATE PAYMENT: Razorpay order created: ${razorpayOrder.id}`
+      );
 
       // Return Razorpay order details to frontend
       return res.json({
@@ -465,16 +520,16 @@ app.post("/api/orders/create-payment", maybeAuth, async (req, res) => {
       });
     } catch (razorpayError) {
       console.error("CREATE PAYMENT: Razorpay API error:", razorpayError);
-      return res.status(500).json({ 
-        error: "razorpay_error", 
-        message: razorpayError.message || "Failed to create Razorpay order" 
+      return res.status(500).json({
+        error: "razorpay_error",
+        message: razorpayError.message || "Failed to create Razorpay order",
       });
     }
   } catch (err) {
     console.error("CREATE PAYMENT ERROR:", err);
-    return res.status(500).json({ 
-      error: "internal_error", 
-      message: err.message || "Internal server error" 
+    return res.status(500).json({
+      error: "internal_error",
+      message: err.message || "Internal server error",
     });
   }
 });
@@ -486,16 +541,18 @@ app.post("/api/orders/create-payment", maybeAuth, async (req, res) => {
  *   razorpay_order_id: string,
  *   razorpay_payment_id: string,
  *   razorpay_signature: string,
- *   orderData: { items: [...], total: number }
+ *   orderData: { items: [...], total: number, shippingAddress: object }
  * }
- * 
+ *
  * Verifies Razorpay payment signature and creates order in Firestore
  */
 app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
   try {
     const uid = req.user ? req.user.uid : null;
     if (!uid) {
-      return res.status(401).json({ error: "unauthorized", message: "User not authenticated" });
+      return res
+        .status(401)
+        .json({ error: "unauthorized", message: "User not authenticated" });
     }
 
     const {
@@ -507,16 +564,16 @@ app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
 
     // Validate input
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-      return res.status(400).json({ 
-        error: "missing_payment_details", 
-        message: "Missing payment verification details" 
+      return res.status(400).json({
+        error: "missing_payment_details",
+        message: "Missing payment verification details",
       });
     }
 
     if (!orderData || !orderData.items || !orderData.total) {
-      return res.status(400).json({ 
-        error: "missing_order_data", 
-        message: "Missing order data" 
+      return res.status(400).json({
+        error: "missing_order_data",
+        message: "Missing order data",
       });
     }
 
@@ -527,9 +584,9 @@ app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
 
     if (generatedSignature !== razorpay_signature) {
       console.error("VERIFY PAYMENT: Signature verification failed");
-      return res.status(400).json({ 
-        error: "invalid_signature", 
-        message: "Payment signature verification failed" 
+      return res.status(400).json({
+        error: "invalid_signature",
+        message: "Payment signature verification failed",
       });
     }
 
@@ -547,9 +604,9 @@ app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
       const productDoc = productDocs[i];
 
       if (!productDoc.exists) {
-        return res.status(400).json({ 
-          error: "product_not_found", 
-          message: `Product ${item.productId} not found` 
+        return res.status(400).json({
+          error: "product_not_found",
+          message: `Product ${item.productId} not found`,
         });
       }
 
@@ -586,6 +643,8 @@ app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
       items: lineItems,
       total: calculatedTotal,
       currency: "INR",
+      // Save shipping address (with fallback to null)
+      shippingAddress: orderData.shippingAddress || null,
       status: "pending",
       payment: {
         razorpay_order_id,
@@ -610,13 +669,12 @@ app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
     });
   } catch (err) {
     console.error("VERIFY PAYMENT ERROR:", err);
-    return res.status(500).json({ 
-      error: "internal_error", 
-      message: err.message || "Internal server error" 
+    return res.status(500).json({
+      error: "internal_error",
+      message: err.message || "Internal server error",
     });
   }
 });
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Backend listening on ${PORT}`));
-
