@@ -246,6 +246,60 @@ app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
   }
 });
 
+// PLACE COD ORDER (ANY AUTHENTICATED USER)
+app.post("/api/orders/place-cod", maybeAuth, async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!uid) return res.status(401).json({ error: "unauthorized" });
+
+    const { items, total, shippingAddress } = req.body;
+    if (!items?.length || !total || !shippingAddress) {
+      return res.status(400).json({ error: "invalid_payload" });
+    }
+
+    // 1. Process Line Items and Inventory
+    const finalItems = [];
+    for (const item of items) {
+      const pSnap = await db.collection("products").doc(item.productId).get();
+      if (pSnap.exists) {
+        const p = pSnap.data();
+        finalItems.push({ 
+          productId: pSnap.id, 
+          name: p.name, 
+          price: p.price, 
+          quantity: item.quantity, 
+          customization: item.customization || null 
+        });
+        
+        if (typeof p.inventory === "number") {
+          await db.collection("products").doc(pSnap.id).update({
+            inventory: Math.max(0, p.inventory - item.quantity),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+        }
+      }
+    }
+
+    // 2. Save COD Order to Firestore
+    const orderRef = await db.collection("orders").add({
+      userId: uid,
+      items: finalItems,
+      total: total,
+      shippingAddress: shippingAddress,
+      status: "pending",
+      paymentMethod: "cod",
+      paymentStatus: "awaiting_collection",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return res.json({ success: true, orderId: orderRef.id });
+  } catch (err) {
+    console.error("COD ORDER ERROR:", err);
+    return res.status(500).json({ error: "internal_error" });
+  }
+});
+
 // ------------------------------------------
 // ADMIN ORDER VIEWS
 // ------------------------------------------
