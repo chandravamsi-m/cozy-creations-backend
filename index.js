@@ -131,6 +131,22 @@ app.delete("/api/admin/products/:id", maybeAuth, async (req, res) => {
   }
 });
 
+// PERMANENT DELETE PRODUCT (ADMIN ONLY)
+app.delete("/api/admin/products/:id/permanent", maybeAuth, async (req, res) => {
+  try {
+    const uid = req.user?.uid;
+    if (!(await isAdminUid(uid))) return res.status(403).json({ error: "forbidden" });
+
+    const productId = req.params.id;
+    await db.collection("products").doc(productId).delete();
+
+    return res.json({ success: true, message: "Product permanently deleted" });
+  } catch (err) {
+    console.error("PERMANENT DELETE ERROR:", err);
+    return res.status(500).json({ error: "internal_error" });
+  }
+});
+
 // ------------------------------------------
 // RAZORPAY PAYMENT & ORDERS
 // ------------------------------------------
