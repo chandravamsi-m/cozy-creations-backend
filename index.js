@@ -284,5 +284,27 @@ app.patch("/api/admin/orders/:id", maybeAuth, async (req, res) => {
   }
 });
 
+// DELETE USER (ADMIN ONLY)
+app.delete("/api/admin/users/:uid", maybeAuth, async (req, res) => {
+  try {
+    const adminUid = req.user?.uid;
+    if (!(await isAdminUid(adminUid))) return res.status(403).json({ error: "forbidden" });
+
+    const targetUid = req.params.uid;
+    if (adminUid === targetUid) return res.status(400).json({ error: "cannot_delete_self" });
+
+    // 1. Delete from Firebase Auth
+    await admin.auth().deleteUser(targetUid);
+    
+    // 2. Delete from Firestore
+    await db.collection("users").doc(targetUid).delete();
+
+    return res.json({ success: true, message: "User permanently deleted" });
+  } catch (err) {
+    console.error("DELETE USER ERROR:", err);
+    return res.status(500).json({ error: "internal_error" });
+  }
+});
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Backend live on port ${PORT}`));
