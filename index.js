@@ -5,6 +5,8 @@ const admin = require("firebase-admin");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 
+const nodemailer = require("nodemailer");
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -21,6 +23,15 @@ if (process.env.FIREBASE_ADMIN_CRED_JSON) {
 }
 
 const db = admin.firestore();
+
+// Create a transporter using your Gmail
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: "cozycreationscandle@gmail.com",
+    pass: "odfv eblk aqls khzz", // Put the code you generated here
+  },
+});
 
 // Middleware: Verify ID Token & Set req.user
 async function maybeAuth(req, res, next) {
@@ -357,6 +368,79 @@ app.delete("/api/admin/users/:uid", maybeAuth, async (req, res) => {
   } catch (err) {
     console.error("DELETE USER ERROR:", err);
     return res.status(500).json({ error: "internal_error" });
+  }
+});
+
+app.post("/api/send-welcome-email", async (req, res) => {
+  const { email, name } = req.body;
+  try {
+    await transporter.sendMail({
+      from: '"Cozy Creations" <cozycreationscandle@gmail.com>',
+      to: email, // This will now work for ANY email address!
+      subject: "Welcome to Cozy Creations 🕯️",
+      html: `
+        <h1>Welcome to Cozy Creations!</h1>
+        <p>Hi ${name || "there"},</p>
+        <p>Thank you for signing up with <b>Cozy Creations</b>.</p>
+        <p>We’re excited to have you 🕯️</p>
+        <br/>
+        <p>— Team Cozy Creations</p>
+      `,
+    });
+    res.status(200).json({ success: true, message: "Welcome email sent" });
+  } catch (error) {
+    console.error("❌ NodeMailer Error:", error);
+    res.status(500).json({ success: false, message: "Failed to send email" });
+  }
+});
+
+
+// 1. ORDER CONFIRMATION + ADMIN NOTIFICATION
+app.post("/api/send-order-confirmation", async (req, res) => {
+  const { email, orderData } = req.body;
+  if (!email || !orderData) return res.status(400).json({ success: false });
+
+  try {
+    const adminEmail = "cozycreationscandle@gmail.com"; // Your email for alerts
+
+    // A. Send to CUSTOMER
+    await transporter.sendMail({
+      from: '"Cozy Creations" <cozycreationscandle@gmail.com>',
+      to: email,
+      subject: `Order Confirmed! #${orderData.orderId} 🕯️`,
+      html: `<h2>Thanks for your order!</h2><p>Order #${orderData.orderId} is confirmed.</p><p>Total: ₹${orderData.total}</p>`,
+    });
+
+    // B. Send to ADMIN (You)
+    await transporter.sendMail({
+      from: '"System" <cozycreationscandle@gmail.com>',
+      to: adminEmail,
+      subject: `🚨 NEW ORDER PLACED! #${orderData.orderId}`,
+      html: `<h2>New Order Alert!</h2><p>Customer: ${email}</p><p>Amount: ₹${orderData.total}</p><p>Check the admin dashboard for details.</p>`,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Email error:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+// 2. ORDER STATUS UPDATE (Corrected)
+app.post("/api/send-status-update", async (req, res) => {
+  const { email, orderId, status } = req.body;
+  
+  try {
+    await transporter.sendMail({
+      from: '"Cozy Creations" <cozycreationscandle@gmail.com>',
+      to: email,
+      subject: `Order #${orderId} Updated 📦`,
+      html: `<h2>Status Update</h2><p>Your order <b>#${orderId}</b> is now: <b style="color: #d97706; text-transform: uppercase;">${status}</b>.</p>`,
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Status update email error:", err);
+    res.status(500).json({ success: false });
   }
 });
 
