@@ -38,8 +38,8 @@ const db = admin.firestore();
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS, // Use App Password from Google
+    user: process.env.GMAIL_USER || "cozycreationscandle@gmail.com",
+    pass: process.env.GMAIL_PASS || "odfv eblk aqls khzz", // Use App Password from Google
   },
 });
 
@@ -439,7 +439,7 @@ app.post("/api/send-order-confirmation", async (req, res) => {
 
     await transporter.sendMail({
       from: '"Store Alert" <' + process.env.GMAIL_USER + ">",
-      to: process.env.ADMIN_EMAIL,
+      to: process.env.ADMIN_EMAIL || "cozycreationscandle@gmail.com",
       subject: "🚨 NEW ORDER - ₹" + orderData.total,
       html: adminHtml,
     });
@@ -523,7 +523,7 @@ app.post("/api/contact", async (req, res) => {
     // Alert Admin with details
     await transporter.sendMail({
       from: '"Bulk Inquiry" <' + process.env.GMAIL_USER + ">",
-      to: process.env.ADMIN_EMAIL,
+      to: process.env.ADMIN_EMAIL || "cozycreationscandle@gmail.com",
       subject: "🚨 NEW BULK INQUIRY",
       html: `<p><b>Customer:</b> ${name} (${email})</p><p><b>Products:</b> ${quantity}x ${product}</p><p><b>Customization:</b> ${customization}</p><p><b>Location:</b> ${location}</p>`,
     });
