@@ -35,12 +35,24 @@ if (process.env.FIREBASE_ADMIN_CRED_JSON) {
 
 const db = admin.firestore();
 
+const GMAIL_USER = process.env.GMAIL_USER || "cozycreationscandle@gmail.com";
+const GMAIL_PASS = process.env.GMAIL_PASS || "odfv eblk aqls khzz";
+
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.GMAIL_USER || "cozycreationscandle@gmail.com",
-    pass: process.env.GMAIL_PASS || "odfv eblk aqls khzz", // Use App Password from Google
+    user: GMAIL_USER,
+    pass: GMAIL_PASS,
   },
+});
+
+// Verify connection on startup (Good for debugging Render)
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("❌ Nodemailer Verification Error:", error.message);
+  } else {
+    console.log("✅ Server is ready to take our messages");
+  }
 });
 
 const razorpay = new Razorpay({
@@ -92,7 +104,7 @@ const wrapLayout = (title, content, name) => {
         <!-- Header Logo Area -->
         <tr>
           <td align="center" style="background:#111827; padding:0;">
-            <img src="https://res.cloudinary.com/dumkblp3v/image/upload/v1766752763/cozy_creation_logo_mu3loj.webp" alt="Cozy Creations" width="600" style="display:block; width:100%; height:auto;" />
+            <img src="https://res.cloudinary.com/dumkblp3v/image/upload/v1766752763/cozy_creation_logo_mu3loj.webp" alt="Cozy Creations" width="600" style="display:block; width:100%; height:16 rem;" />
           </td>
         </tr>
         <!-- Main Content Area -->
@@ -384,14 +396,17 @@ app.post("/api/send-welcome-email", async (req, res) => {
       name
     );
     await transporter.sendMail({
-      from: '"Cozy Creations" <' + process.env.GMAIL_USER + ">",
+      from: `"Cozy Creations" <${GMAIL_USER}>`,
       to: email,
       subject: "Welcome to Cozy Creations! 🕯️",
       html,
     });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).send();
+    console.error("❌ Welcome Email Error:", err.message);
+    res
+      .status(500)
+      .json({ error: "Failed to send welcome email", details: err.message });
   }
 });
 
@@ -399,8 +414,6 @@ app.post("/api/send-order-confirmation", async (req, res) => {
   const { email, orderData } = req.body;
   try {
     const table = buildItemTable(orderData.items);
-
-    // Prepare Customer Email
     const customerHtml = wrapLayout(
       "Order Confirmed",
       `
@@ -415,63 +428,58 @@ app.post("/api/send-order-confirmation", async (req, res) => {
     );
 
     await transporter.sendMail({
-      from: '"Cozy Creations" <' + process.env.GMAIL_USER + ">",
+      from: `"Cozy Creations" <${GMAIL_USER}>`, // Fix: Uses the constant GMAIL_USER
       to: email,
       subject: "Order Confirmation! 🕯️",
       html: customerHtml,
     });
 
-    // Prepare Admin Alert
-    const adminHtml = wrapLayout(
-      "🚨 New Order Received",
-      `
-      <p>A new order has been placed by <b>${
-        orderData.customerName
-      }</b> (${email}).</p>
-      ${table}
-      <p style="font-size: 20px; font-weight: 700;">Total: ₹${
-        orderData.total
-      }</p>
-      <p>Method: ${orderData.paymentMethod?.toUpperCase()}</p>
-    `,
-      "Admin"
-    );
-
     await transporter.sendMail({
-      from: '"Store Alert" <' + process.env.GMAIL_USER + ">",
-      to: process.env.ADMIN_EMAIL || "cozycreationscandle@gmail.com",
+      from: `"Store Alert" <${GMAIL_USER}>`,
+      to: process.env.ADMIN_EMAIL || GMAIL_USER,
       subject: "🚨 NEW ORDER - ₹" + orderData.total,
-      html: adminHtml,
+      html: wrapLayout(
+        "🚨 New Order",
+        `<p>New order from ${orderData.customerName}</p>${table}`,
+        "Admin"
+      ),
     });
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).send({ error: "Failed to send confirmation email" });
+    console.error("❌ Order Confirmation Email Error:", err.message); // This will show in Render Logs
+    res
+      .status(500)
+      .json({ error: "Failed to send email", details: err.message });
   }
 });
 
 app.post("/api/send-status-update", async (req, res) => {
+  const { email, orderId, status, name } = req.body;
   try {
     const html = wrapLayout(
       "Order Status Updated",
       `
       <div style="padding: 20px; background: #f0fdf4; border-radius: 12px; border: 1px solid #dcfce7; text-align: center;">
-        <h3 style="margin: 0; font-size: 20px; color: #166534;">New Status: ${req.body.status.toUpperCase()}</h3>
+        <h3 style="margin: 0; font-size: 20px; color: #166534;">New Status: ${status.toUpperCase()}</h3>
       </div>
       <p style="margin-top: 20px;">We're working hard to get your package to you as quickly as possible!</p>
     `,
-      req.body.name
+      name
     );
 
     await transporter.sendMail({
-      from: '"Cozy Creations" <' + process.env.GMAIL_USER + ">",
-      to: req.body.email,
+      from: `"Cozy Creations" <${GMAIL_USER}>`,
+      to: email,
       subject: "Order Update",
       html,
     });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).send({ error: "Failed to send status update" });
+    console.error("❌ Status Update Email Error:", err.message);
+    res
+      .status(500)
+      .json({ error: "Failed to send status update", details: err.message });
   }
 });
 
@@ -481,55 +489,47 @@ app.post("/api/send-password-reset", async (req, res) => {
     const link = await admin.auth().generatePasswordResetLink(email);
     const html = wrapLayout(
       "Password Reset",
-      `<p>Click the link below to reset your password. It expires in 1 hour.</p><a href="${link}">Reset Password</a>`,
+      `<a href="${link}">Reset Password</a>`,
       "Customer"
     );
     await transporter.sendMail({
-      from: '"Cozy Creations Security" <' + process.env.GMAIL_USER + ">",
+      from: `"Cozy Creations Security" <${GMAIL_USER}>`,
       to: email,
       subject: "Password Reset Request",
       html,
     });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).send();
+    console.error("❌ Password Reset Email Error:", err.message);
+    res.status(500).json({ error: "Failed to send reset email" });
   }
 });
 
 app.post("/api/contact", async (req, res) => {
-  const {
-    name,
-    email,
-    phone,
-    collection,
-    product,
-    quantity,
-    customization,
-    location,
-  } = req.body;
+  const { name, email, product, quantity, customization, location } = req.body;
   try {
     const html = wrapLayout(
       "Bulk Inquiry Received",
-      `<p>We received your inquiry for ${quantity}x ${product}. Our team will contact you shortly.</p>`,
+      `<p>We received your inquiry for ${quantity}x ${product}.</p>`,
       name
     );
     await transporter.sendMail({
-      from: '"Cozy Creations" <' + process.env.GMAIL_USER + ">",
+      from: `"Cozy Creations" <${GMAIL_USER}>`,
       to: email,
-      subject: "We received your bulk inquiry! 🕯️",
+      subject: "Inquiry Received! 🕯️",
       html,
     });
 
-    // Alert Admin with details
     await transporter.sendMail({
-      from: '"Bulk Inquiry" <' + process.env.GMAIL_USER + ">",
-      to: process.env.ADMIN_EMAIL || "cozycreationscandle@gmail.com",
+      from: `"Bulk Inquiry Alert" <${GMAIL_USER}>`,
+      to: process.env.ADMIN_EMAIL || GMAIL_USER,
       subject: "🚨 NEW BULK INQUIRY",
-      html: `<p><b>Customer:</b> ${name} (${email})</p><p><b>Products:</b> ${quantity}x ${product}</p><p><b>Customization:</b> ${customization}</p><p><b>Location:</b> ${location}</p>`,
+      html: `<p><b>Customer:</b> ${name} (${email})</p><p><b>Product:</b> ${quantity}x ${product}</p>`,
     });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).send();
+    console.error("❌ Contact Inquiry Email Error:", err.message);
+    res.status(500).json({ error: "Failed to send inquiry alerts" });
   }
 });
 
