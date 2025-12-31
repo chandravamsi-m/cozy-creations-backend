@@ -35,34 +35,27 @@ if (process.env.FIREBASE_ADMIN_CRED_JSON) {
 
 const db = admin.firestore();
 
-const GMAIL_USER = process.env.GMAIL_USER || "cozycreationscandle@gmail.com";
-const GMAIL_PASS = process.env.GMAIL_PASS || "odfv eblk aqls khzz";
+const GMAIL_USER = process.env.GMAIL_USER;
+const GMAIL_PASS = process.env.GMAIL_PASS;
 
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // Use STARTTLS for port 587
+  service: "gmail",
   auth: {
-    user: GMAIL_USER,
-    pass: GMAIL_PASS,
-  },
-  connectionTimeout: 20000, // 20 seconds (increased for cloud)
-  greetingTimeout: 20000,
-  socketTimeout: 20000,
-  tls: {
-    rejectUnauthorized: true, // Ensure secure connection
-    minVersion: "TLSv1.2",
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASS,
   },
 });
 
-// Verify connection on startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ Nodemailer Verification Error:", error.message);
-  } else {
-    console.log("✅ Server is ready to send emails via Port 587");
-  }
-});
+if (process.env.NODE_ENV !== "production") {
+  transporter.verify((error) => {
+    if (error) {
+      console.error("❌ Nodemailer Verification Error:", error.message);
+    } else {
+      console.log("✅ SMTP server ready");
+    }
+  });
+}
+
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
