@@ -39,17 +39,26 @@ const GMAIL_USER = process.env.GMAIL_USER || "cozycreationscandle@gmail.com";
 const GMAIL_PASS = process.env.GMAIL_PASS || "odfv eblk aqls khzz";
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true, // Use SSL for port 465
   auth: {
     user: GMAIL_USER,
     pass: GMAIL_PASS,
   },
+  // Increase timeouts for cloud stability
+  connectionTimeout: 15000, // 15 seconds
+  greetingTimeout: 15000,
+  socketTimeout: 15000,
 });
 
-// Verify connection on startup (Good for debugging Render)
+// Verify connection on startup
 transporter.verify((error, success) => {
   if (error) {
     console.error("❌ Nodemailer Verification Error:", error.message);
+    if (error.message.includes("timeout")) {
+      console.log("💡 TIP: If timeout persists, try changing port to 587 and setting secure: false");
+    }
   } else {
     console.log("✅ Server is ready to take our messages");
   }
