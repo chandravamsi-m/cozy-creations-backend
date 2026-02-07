@@ -4,6 +4,9 @@ const admin = require("firebase-admin");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const { Resend } = require("resend");
+const puppeteer = require("puppeteer");
+const { PDFDocument } = require("pdf-lib");
+const { generateTemplate1, generateTemplate2, collectionNames } = require("./templates/catalogueTemplates");
 require("dotenv").config();
 
 const app = express();
@@ -135,6 +138,46 @@ const buildItemTable = (items) => {
     .join("");
   return `<table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 24px; border-top: 2px solid #111827;">${rows}</table>`;
 };
+
+// ------------------------------------------
+// CATALOGUE GENERATION HELPER
+// ------------------------------------------
+
+function generateMultiPageCatalogue(products) {
+  // Group products by category
+  const productsByCategory = {};
+  products.forEach(p => {
+    const cat = p.category || 'other';
+    if (!productsByCategory[cat]) {
+      productsByCategory[cat] = [];
+    }
+    productsByCategory[cat].push(p);
+  });
+
+  const pages = [];
+  let templateToggle = true; // Start with template 1
+
+  // Generate pages for each category
+  Object.keys(productsByCategory).forEach(category => {
+    const categoryProducts = productsByCategory[category];
+    const collectionTitle = collectionNames[category] || category.charAt(0).toUpperCase() + category.slice(1);
+
+    // Split into chunks of 5 products per page
+    for (let i = 0; i < categoryProducts.length; i += 5) {
+      const chunk = categoryProducts.slice(i, i + 5);
+      
+      // Alternate between templates
+      const pageHtml = templateToggle 
+        ? generateTemplate1(chunk, collectionTitle)
+        : generateTemplate2(chunk, collectionTitle);
+      
+      pages.push(pageHtml);
+      templateToggle = !templateToggle;
+    }
+  });
+
+  return pages;
+}
 
 // ------------------------------------------
 // ADMIN ENDPOINTS (PRODUCTS)
@@ -344,6 +387,78 @@ app.delete("/api/admin/users/:uid", maybeAuth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
+  console.log("📥 Catalogue Generation Request Received");
+  try {
+    if (!(await isAdminUid(req.user?.uid))) {
+      console.warn("🚫 Unauthorized Catalogue Request:", req.user?.uid);
+      return res.status(403).json({ error: "Access Denied" });
+    }
+
+    console.log("🔍 Fetching active products...");
+    const snap = await db.collection("products").where("isActive", "!=", false).get();
+    const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    console.log(`📦 Found ${products.length} active products`);
+    if (products.length === 0) {
+      return res.status(404).json({ error: "No active products found" });
+    }
+
+    console.log("📄 Generating multi-page catalogue...");
+    const pages = generateMultiPageCatalogue(products);
+    console.log(`📑 Generated ${pages.length} pages`);
+
+    console.log("🌐 Launching Puppeteer...");
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    });
+
+    const pdfBuffers = [];
+
+    for (let i = 0; i < pages.length; i++) {
+      console.log(`⏳ Rendering page ${i + 1}/${pages.length}...`);
+      const page = await browser.newPage();
+      await page.setContent(pages[i], { waitUntil: "networkidle0" });
+      
+      const pdfBuffer = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
+        preferCSSPageSize: false,
+        tagged: false  // Disable PDF tagging for smaller file size
+      });
+      
+      pdfBuffers.push(pdfBuffer);
+      await page.close();
+    }
+
+    console.log("✅ All pages rendered, merging PDFs...");
+    await browser.close();
+
+    // Merge all PDF buffers into a single document
+    const mergedPdf = await PDFDocument.create();
+    
+    for (const pdfBuffer of pdfBuffers) {
+      const pdf = await PDFDocument.load(pdfBuffer);
+      const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+      copiedPages.forEach((page) => mergedPdf.addPage(page));
+    }
+
+    const finalPdf = await mergedPdf.save();
+    console.log(`📚 Merged ${pdfBuffers.length} pages into final PDF`);
+
+    res.contentType("application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=cozy-creations-catalogue.pdf");
+    res.header('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.send(finalPdf);
+
+  } catch (err) {
+    console.error("❌ Catalogue Generation Error:", err);
+    res.status(500).json({ error: "Failed to generate catalogue", details: err.message });
   }
 });
 

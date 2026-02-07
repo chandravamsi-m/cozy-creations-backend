@@ -18,6 +18,8 @@
     "express": "^5.2.1",
     "firebase-admin": "^13.6.0",
     "nodemon": "^3.1.11",
+    "pdf-lib": "^1.17.1",
+    "puppeteer": "^24.37.1",
     "razorpay": "^2.9.6",
     "resend": "^6.6.0"
   }
