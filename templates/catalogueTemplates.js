@@ -13,21 +13,21 @@ const linesLeftUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548
 const candlestickUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/candlestick_ljryjs.svg";
 const lampUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/lamp_svjx60.svg";
 
-// Common Font Styles for PDF embedding
+// Common Font Styles for PDF embedding (Cloudinary-hosted)
 const fontStyles = `
   @font-face {
     font-family: 'Papyrus';
-    src: url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.woff2') format('woff2'),
-         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.woff') format('woff'),
-         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.ttf') format('truetype');
-    font-display: swap;
+    src: url('https://res.cloudinary.com/dumkblp3v/raw/upload/v1770554569/papyrus_cwxj89.ttf') format('truetype');
+    font-display: block;
+    font-weight: normal;
+    font-style: normal;
   }
   @font-face {
     font-family: 'Non Ophelie Display Trial';
-    src: url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.woff2') format('woff2'),
-         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.woff') format('woff'),
-         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.ttf') format('truetype');
-    font-display: swap;
+    src: url('https://res.cloudinary.com/dumkblp3v/raw/upload/v1770554592/NonOphelieDisplay-Regular-BF67107f6e3063a_aqqjn2.ttf') format('truetype');
+    font-display: block;
+    font-weight: normal;
+    font-style: normal;
   }
   .font-load-trigger {
     position: absolute;
