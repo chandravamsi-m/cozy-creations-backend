@@ -6,7 +6,14 @@ const crypto = require("crypto");
 const { Resend } = require("resend");
 const puppeteer = require("puppeteer");
 const { PDFDocument } = require("pdf-lib");
-const { generateTemplate1, generateTemplate2, collectionNames } = require("./templates/catalogueTemplates");
+const { 
+  generateWelcomePage, 
+  generateAboutPage, 
+  generateTemplate1, 
+  generateTemplate2, 
+  generateCustomizationPage,
+  collectionNames 
+} = require("./templates/catalogueTemplates");
 require("dotenv").config();
 
 const app = express();
@@ -144,6 +151,15 @@ const buildItemTable = (items) => {
 // ------------------------------------------
 
 function generateMultiPageCatalogue(products) {
+  const pages = [];
+  
+  // Add intro pages first
+  console.log("📄 Adding welcome page...");
+  pages.push(generateWelcomePage());
+  
+  console.log("📄 Adding about us page...");
+  pages.push(generateAboutPage());
+  
   // Group products by category
   const productsByCategory = {};
   products.forEach(p => {
@@ -154,7 +170,6 @@ function generateMultiPageCatalogue(products) {
     productsByCategory[cat].push(p);
   });
 
-  const pages = [];
   let templateToggle = true; // Start with template 1
 
   // Generate pages for each category
@@ -175,6 +190,10 @@ function generateMultiPageCatalogue(products) {
       templateToggle = !templateToggle;
     }
   });
+  
+  // Add customization page at the end
+  console.log("📄 Adding customization page...");
+  pages.push(generateCustomizationPage());
 
   return pages;
 }
