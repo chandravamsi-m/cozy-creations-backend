@@ -17,22 +17,29 @@ const lampUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/l
 const fontStyles = `
   @font-face {
     font-family: 'Papyrus';
-    src: url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.eot');
-    src: url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.eot?#iefix') format('embedded-opentype'),
-         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.woff2') format('woff2'),
+    src: url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.woff2') format('woff2'),
          url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.woff') format('woff'),
-         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.ttf') format('truetype'),
-         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.svg#Papyrus') format('svg');
+         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.ttf') format('truetype');
+    font-display: swap;
   }
   @font-face {
     font-family: 'Non Ophelie Display Trial';
-    src: url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.eot');
-    src: url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.eot?#iefix') format('embedded-opentype'),
-         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.woff2') format('woff2'),
+    src: url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.woff2') format('woff2'),
          url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.woff') format('woff'),
-         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.ttf') format('truetype'),
-         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.svg#Non Ophelie Display Trial') format('svg');
+         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.ttf') format('truetype');
+    font-display: swap;
   }
+  .font-load-trigger {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+    visibility: hidden;
+  }
+`;
+
+const fontForceLoadHtml = `
+  <div class="font-load-trigger" style="font-family: 'Papyrus';">a</div>
+  <div class="font-load-trigger" style="font-family: 'Non Ophelie Display Trial';">a</div>
 `;
 
 // Helper to optimize Cloudinary image URLs for PDF generation
@@ -152,6 +159,7 @@ function generateWelcomePage() {
   </style>
 </head>
 <body>
+  ${fontForceLoadHtml}
   <div class="a4-page">
     <div class="hero-section">
       <img src="https://res.cloudinary.com/dumkblp3v/image/upload/v1770548514/logo_wq2xws.svg" alt="Cozy Creations Logo" class="logo">
@@ -330,6 +338,7 @@ function generateAboutPage() {
   </style>
 </head>
 <body>
+  ${fontForceLoadHtml}
   <div class="a4-page">
     <img src="${linesLeftUrl}" alt="" class="decorative-lines">
 
@@ -511,6 +520,7 @@ function generateCustomizationPage() {
   </style>
 </head>
 <body>
+  ${fontForceLoadHtml}
   <div class="a4-page">
     <img src="${linesRightUrl}" alt="" class="lines-decoration">
 
@@ -711,6 +721,7 @@ function generateTemplate1(products, collectionTitle) {
   </style>
 </head>
 <body>
+  ${fontForceLoadHtml}
   <div class="a4-page">
     <img src="${linesRightUrl}" alt="" class="decorative-lines">
     <header>
@@ -898,6 +909,7 @@ function generateTemplate2(products, collectionTitle) {
   </style>
 </head>
 <body>
+  ${fontForceLoadHtml}
   <div class="a4-page">
     <img src="${linesLeftUrl}" alt="" class="decorative-lines">
     <header>

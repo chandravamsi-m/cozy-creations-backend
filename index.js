@@ -457,11 +457,22 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
       page.setDefaultNavigationTimeout(120000); 
       page.setDefaultTimeout(120000);
 
-      await page.setContent(pages[i], { waitUntil: "load" });
+      await page.setContent(pages[i], { 
+        waitUntil: "load",
+        timeout: 120000 
+      });
       
       // Wait for all fonts to be loaded before catching the PDF
       console.log("   Waiting for fonts...");
-      await page.evaluateHandle(() => document.fonts.ready);
+      try {
+        await page.evaluateHandle(() => document.fonts.ready);
+        const fontStatus = await page.evaluate(() => {
+          return Array.from(document.fonts).map(f => `${f.family} (${f.status})`).join(', ');
+        });
+        console.log("   Fonts status:", fontStatus);
+      } catch (fErr) {
+        console.log("   Font wait warning:", fErr.message);
+      }
       
       const pdfBuffer = await page.pdf({
         format: "A4",
