@@ -13,6 +13,28 @@ const linesLeftUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548
 const candlestickUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/candlestick_ljryjs.svg";
 const lampUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/lamp_svjx60.svg";
 
+// Common Font Styles for PDF embedding
+const fontStyles = `
+  @font-face {
+    font-family: 'Papyrus';
+    src: url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.eot');
+    src: url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.eot?#iefix') format('embedded-opentype'),
+         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.woff2') format('woff2'),
+         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.woff') format('woff'),
+         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.ttf') format('truetype'),
+         url('https://db.onlinewebfonts.com/t/12423907c3070cd030d32c4f1c9c4501.svg#Papyrus') format('svg');
+  }
+  @font-face {
+    font-family: 'Non Ophelie Display Trial';
+    src: url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.eot');
+    src: url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.eot?#iefix') format('embedded-opentype'),
+         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.woff2') format('woff2'),
+         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.woff') format('woff'),
+         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.ttf') format('truetype'),
+         url('https://db.onlinewebfonts.com/t/5217988358252285cc23588f9f654bc0.svg#Non Ophelie Display Trial') format('svg');
+  }
+`;
+
 // Helper to optimize Cloudinary image URLs for PDF generation
 const optimizeCloudinaryUrl = (url) => {
   if (!url || !url.includes('cloudinary.com')) return url;
@@ -59,6 +81,7 @@ function generateWelcomePage() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cozy Creations - Welcome</title>
   <style>
+    ${fontStyles}
     :root {
       --bg-color: #FFC592;
       --text-dark: #4F3629;
@@ -159,6 +182,7 @@ function generateAboutPage() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cozy Creations - About Us</title>
   <style>
+    ${fontStyles}
     :root {
       --bg-color: #FFC592;
       --card-bg: #4F3629;
@@ -379,6 +403,7 @@ function generateCustomizationPage() {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cozy Creations - Customization</title>
   <style>
+    ${fontStyles}
     :root {
       --bg-color: #FFC592;
       --text-dark: #4F3629;
@@ -544,6 +569,7 @@ function generateTemplate1(products, collectionTitle) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cozy Catalogue - ${collectionTitle}</title>
   <style>
+    ${fontStyles}
     :root {
       --bg-color: #FFC592;
       --card-bg: #4F3629;
@@ -728,6 +754,7 @@ function generateTemplate2(products, collectionTitle) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cozy Catalogue - ${collectionTitle}</title>
   <style>
+    ${fontStyles}
     :root {
       --bg-color: #FFC592;
       --card-bg: #4F3629;

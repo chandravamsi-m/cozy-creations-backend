@@ -455,6 +455,10 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
       const page = await browser.newPage();
       await page.setContent(pages[i], { waitUntil: "networkidle0" });
       
+      // Wait for all fonts to be loaded before catching the PDF
+      console.log("   Waiting for fonts...");
+      await page.evaluateHandle(() => document.fonts.ready);
+      
       const pdfBuffer = await page.pdf({
         format: "A4",
         printBackground: true,
