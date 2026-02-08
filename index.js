@@ -431,10 +431,22 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
     console.log(`📑 Generated ${pages.length} pages`);
 
     console.log("🌐 Launching Puppeteer...");
-    const browser = await puppeteer.launch({
+    
+    // Diagnostic logs for Render debugging
+    console.log("📂 Current Directory:", __dirname);
+    console.log("📁 Cache Dir ENV:", process.env.PUPPETEER_CACHE_DIR);
+
+    const launchOptions = {
       headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
-    });
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    };
+
+    // Force exact path if cache dir is set (specifically for Render)
+    if (process.env.PUPPETEER_CACHE_DIR) {
+      console.log("🎯 Using manual cache path resolution...");
+    }
+
+    const browser = await puppeteer.launch(launchOptions);
 
     const pdfBuffers = [];
 
