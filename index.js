@@ -453,7 +453,11 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
     for (let i = 0; i < pages.length; i++) {
       console.log(`⏳ Rendering page ${i + 1}/${pages.length}...`);
       const page = await browser.newPage();
-      await page.setContent(pages[i], { waitUntil: "networkidle0" });
+      // Increase timeout for Render's slower environment
+      page.setDefaultNavigationTimeout(120000); 
+      page.setDefaultTimeout(120000);
+
+      await page.setContent(pages[i], { waitUntil: "load" });
       
       // Wait for all fonts to be loaded before catching the PDF
       console.log("   Waiting for fonts...");
