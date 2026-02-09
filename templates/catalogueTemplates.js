@@ -69,7 +69,11 @@ const formatProductName = (name) => {
 const buildDescription = (product) => {
   const weight = product.weightGrams || '?';
   const burnTime = product.burnTimeHours || '?';
-  return `| Natural Soy Wax |<br>Aromatherapy Candle | Perfect<br>for Home Decor & Gifting<br>(${weight}g - ${burnTime}hrs)`;
+  // Get wax type from product, capitalize first letter, default to 'Soy'
+  const waxType = product.waxType 
+    ? product.waxType.charAt(0).toUpperCase() + product.waxType.slice(1)
+    : 'Soy';
+  return `| Natural ${waxType} Wax |<br>Aromatherapy Candle | Perfect<br>for Home Decor & Gifting<br>(${weight}g - ${burnTime}hrs)`;
 };
 
 // Helper to build badge text
