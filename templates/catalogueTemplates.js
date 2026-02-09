@@ -12,6 +12,7 @@ const linesRightUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v177054
 const linesLeftUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/linesleft_gx8o8w.svg";
 const candlestickUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/candlestick_ljryjs.svg";
 const lampUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/lamp_svjx60.svg";
+const qrCodeUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770618965/Vector_iajl4o.svg";
 
 // Common Font Styles for PDF embedding (Cloudinary-hosted)
 const fontStyles = `
@@ -514,7 +515,7 @@ function generateCustomizationPage() {
       z-index: 2;
     }
     .footer-tagline {
-      font-size: 26px;
+      font-size: 22px;
       color: var(--text-dark);
     }
   </style>
@@ -640,13 +641,13 @@ function generateTemplate1(products, collectionTitle) {
     }
     .product-grid .card:nth-child(1) { grid-column: 1 / 2; }
     .product-grid .card:nth-child(2) { grid-column: 2 / 3; }
-    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 120px; }
-    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 120px; }
-    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 120px; }
+    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 144px; }
+    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 144px; }
+    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 144px; }
     .card {
       background-color: var(--card-bg);
       border-radius: 40px;
-      padding: 80px 8px 8px 8px;
+      padding: 52px 8px 8px 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -666,7 +667,7 @@ function generateTemplate1(products, collectionTitle) {
       align-items: center;
       justify-content: center;
       position: absolute;
-      top: -110px;
+      top: -140px;
       left: 50%;
       transform: translateX(-50%);
       box-shadow: 0 4px 8px rgba(0,0,0,0.1);
@@ -677,9 +678,10 @@ function generateTemplate1(products, collectionTitle) {
       object-fit: cover;
     }
     .card h2 {
-      font-size: 30px;
-      line-height: 0.8;
+      font-size: 32px;
+      line-height: 0.9;
       font-weight: 100;
+      letter-spacing: 0.8px;
       text-align: center;
       padding: 4px;
     }
@@ -696,7 +698,7 @@ function generateTemplate1(products, collectionTitle) {
     .description {
       font-size: 14px;
       line-height: 1.4;
-      opacity: 0.6;
+      opacity: 0.7 !important;
       padding: 4px 4px;
       font-family: 'Papyrus', fantasy, sans-serif;
     }
@@ -714,10 +716,9 @@ function generateTemplate1(products, collectionTitle) {
     }
     .footer-text {
       font-family: 'Papyrus', fantasy, sans-serif;
-      font-size: 20px;
+      font-size: 22px;
       color: #4d372c;
       font-style: normal;
-    }
   </style>
 </head>
 <body>
@@ -828,13 +829,13 @@ function generateTemplate2(products, collectionTitle) {
     }
     .product-grid .card:nth-child(1) { grid-column: 2 / 3; }
     .product-grid .card:nth-child(2) { grid-column: 3 / 4; }
-    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 120px; }
-    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 120px; }
-    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 120px; }
+    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 144px; }
+    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 144px; }
+    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 144px; }
     .card {
       background-color: var(--card-bg);
       border-radius: 40px;
-      padding: 80px 8px 8px 8px;
+      padding: 52px 8px 8px 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -854,7 +855,7 @@ function generateTemplate2(products, collectionTitle) {
       align-items: center;
       justify-content: center;
       position: absolute;
-      top: -110px;
+      top: -140px;
       left: 50%;
       transform: translateX(-50%);
       box-shadow: 0 4px 8px rgba(0,0,0,0.1);
@@ -865,9 +866,10 @@ function generateTemplate2(products, collectionTitle) {
       object-fit: cover;
     }
     .card h2 {
-      font-size: 30px;
-      line-height: 0.8;
+      font-size: 32px;
+      line-height: 0.9;
       font-weight: 100;
+      letter-spacing: 0.8px;
       text-align: center;
       padding: 4px;
     }
@@ -884,7 +886,7 @@ function generateTemplate2(products, collectionTitle) {
     .description {
       font-size: 14px;
       line-height: 1.4;
-      opacity: 0.6;
+      opacity: 0.7 !important;
       padding: 4px 4px;
       font-family: 'Papyrus', fantasy, sans-serif;
     }
@@ -896,7 +898,7 @@ function generateTemplate2(products, collectionTitle) {
       z-index: 1;
     }
     footer {
-      margin-top: 20px;
+      margin-top: 22px;
       text-align: center;
       padding-bottom: 15px;
     }
@@ -928,11 +930,295 @@ function generateTemplate2(products, collectionTitle) {
   `;
 }
 
+// Contact & Gift Page - Final page of catalogue
+function generateContactPage() {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cozy Creations - Contact Us</title>
+  <style>
+    ${fontStyles}
+    :root {
+      --bg-color: #FFC592;
+      --text-dark: #000000;
+      --border-dark: #4F3629;
+    }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background-color: #e5e5e5;
+      display: flex;
+      justify-content: center;
+      padding: 0;
+      font-family: 'Papyrus', fantasy, sans-serif;
+    }
+    .a4-page {
+      width: 210mm;
+      height: 297mm;
+      background-color: var(--bg-color);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      padding: 60px 50px 40px 50px;
+      font-family: 'Papyrus', fantasy, sans-serif;
+      color: var(--text-dark);
+    }
+    .section-box {
+      border: 1.5px solid var(--text-dark);
+      background-color: transparent;
+      padding: 10px;
+    }
+    .gift-bulk-box {
+      margin-bottom: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .gift-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+    }
+    .gift-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .gift-row.top-row {
+      gap: 60px;
+    }
+    .gift-row.bottom-row {
+      gap: 50px;
+    }
+    .gift-sets {
+      flex: 1;
+      max-width: 50%;
+    }
+    .includes {
+      flex: 0 0 40%;
+      padding-top: 0;
+    }
+    .bulk-orders {
+      flex: 1;
+      max-width: 50%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .bulk-orders h2 {
+      margin-bottom: 12px;
+    }
+    .bulk-orders p {
+      margin-bottom: -10px;
+    }
+    .benefits {
+      flex: 0 0 40%;
+      padding-top: 4px;
+    }
+    .benefits h3 {
+      margin-bottom: 20px;
+    }
+    h2 {
+      font-family: 'Non Ophelie Display Trial';
+      font-size: 28px;
+      margin-bottom: 0px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+    h3 {
+      font-family: 'Non Ophelie Display Trial';
+      font-size: 26px;
+      margin-bottom: 4px;
+      font-weight: 700;
+      text-decoration: underline;
+      text-underline-offset: 4px;
+      line-height: 1.2;
+    }
+    .benefits h3 {
+      text-decoration: none;
+    }
+    .section-intro {
+      font-size: 22px;
+      font-family: 'Papyrus';
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+    .bullet-list {
+      font-size: 22px;
+      font-family: 'Papyrus';
+      line-height: 1.6;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .bullet-list li {
+      font-size: 22px;
+      margin: 0;
+      line-height: 1.6;
+    }
+    .bullet-list li::before {
+      content: "• ";
+    }
+    .bottom-section {
+      margin-top: 60px;
+    }
+    .contact-box {
+      border: 1.5px solid var(--border-dark);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .contact-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .contact-info h2 {
+      font-size: 32px;
+      font-family: 'Non Ophelie Display Trial';
+      font-weight: 700;
+      text-decoration: underline;
+      text-underline-offset: 5px;
+      margin-bottom: 0;
+    }
+    .contact-details {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .contact-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 26px;
+      font-family: 'Non Ophelie Display Trial';
+      line-height: 1.3;
+    }
+    .contact-item strong {
+      font-weight: 400;
+      white-space: nowrap;
+    }
+    .contact-item span {
+      font-weight: 400;
+    }
+    .contact-item.address span {
+      font-size: 26px;
+      line-height: 1.3;
+    }
+    .qr-container {
+      width: 180px;
+      height: 180px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .qr-image {
+      width: 180px;
+      height: 180px;
+      object-fit: contain;
+    }
+  </style>
+</head>
+<body>
+  ${fontForceLoadHtml}
+  <div class="a4-page">
+    <div class="top-section">
+      <div class="section-box gift-bulk-box">
+        <h2>Gift Sets – Gifting Made Special</h2>
+        <div class="gift-grid">
+          <div class="gift-row top-row">
+            <div class="gift-sets">
+              <p class="section-intro">Make every occasion memorable with our thoughtfully curated gift sets.</p>
+              <ul class="bullet-list">
+                <li>Festival Gift Boxes</li>
+                <li>Couple Hampers</li>
+                <li>Customized Gift Packs</li>
+                <li>Themed Candle Combos</li>
+              </ul>
+            </div>
+
+            <div class="includes">
+              <h3>Includes:</h3>
+              <ul class="bullet-list">
+                <li>Premium packing box</li>
+                <li>Ribbon decorations</li>
+                <li>Personalized message card</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="gift-row bottom-row">
+            <div class="bulk-orders">
+              <h2>Bulk / Corporate Orders</h2>
+              <p class="section-intro">Perfect for events, branding, and celebrations.</p>
+              <ul class="bullet-list">
+                <li>Wedding favors</li>
+                <li>Corporate events</li>
+                <li>Return gifts</li>
+                <li>Brand promotions</li>
+                <li>Custom mold candle designs</li>
+              </ul>
+            </div>
+
+            <div class="benefits">
+              <h3>Special Benefits:</h3>
+              <ul class="bullet-list">
+                <li>Bulk order discounts</li>
+                <li>Fast delivery</li>
+                <li>Fully customized designs</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-section">
+      <div class="section-box contact-box">
+        <div class="contact-info">
+          <h2>Contact Us:</h2>
+          <div class="contact-details">
+            <div class="contact-item">
+              <strong>Mail :</strong> <span>cozycandlecorner13@gmail.com</span>
+            </div>
+            <div class="contact-item">
+              <strong>Call :</strong> <span>8019401322</span>
+            </div>
+            <div class="contact-item">
+              <strong>Insta :</strong> <span>@cozycreationscandle</span>
+            </div>
+            <div class="contact-item address">
+              <strong>Address :</strong> <span>VSR CELESTIAL towers<br>gajularamaram<br>hyderabad,500055</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="qr-container">
+          <img src="${qrCodeUrl}" alt="QR Code" class="qr-image">
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
 module.exports = {
   generateWelcomePage,
   generateAboutPage,
   generateTemplate1,
   generateTemplate2,
   generateCustomizationPage,
+  generateContactPage,
   collectionNames
 };

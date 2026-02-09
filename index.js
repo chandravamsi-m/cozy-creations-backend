@@ -12,6 +12,7 @@ const {
   generateTemplate1, 
   generateTemplate2, 
   generateCustomizationPage,
+  generateContactPage,
   collectionNames 
 } = require("./templates/catalogueTemplates");
 require("dotenv").config();
@@ -194,6 +195,10 @@ function generateMultiPageCatalogue(products) {
   // Add customization page at the end
   console.log("📄 Adding customization page...");
   pages.push(generateCustomizationPage());
+  
+  // Add contact page as the final page
+  console.log("📄 Adding contact & gift page...");
+  pages.push(generateContactPage());
 
   return pages;
 }

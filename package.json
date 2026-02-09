@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "nodemon index.js",
     "build": "PUPPETEER_CACHE_DIR=./.puppeteer-cache npx puppeteer browsers install chrome",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
