@@ -58,7 +58,7 @@ const optimizeCloudinaryUrl = (url) => {
 
 // Helper to format product name with line break and dynamic font size
 const formatProductName = (name) => {
-  const formatted = name.replace(/ candles?/i, '<br>candles');
+  const formatted = name;
   // Calculate font size based on name length
   const baseLength = 20; // Expected average length
   const fontSize = name.length > baseLength ? Math.max(20, 30 - Math.floor((name.length - baseLength) / 3)) : 30;
@@ -678,7 +678,7 @@ function generateTemplate1(products, collectionTitle) {
       object-fit: cover;
     }
     .card h2 {
-      font-size: 32px;
+      font-size: 31px;
       line-height: 0.95;
       font-weight: 100;
       letter-spacing: 0.8px;
@@ -719,6 +719,7 @@ function generateTemplate1(products, collectionTitle) {
       font-size: 22px;
       color: #4d372c;
       font-style: normal;
+    }
   </style>
 </head>
 <body>
@@ -866,7 +867,7 @@ function generateTemplate2(products, collectionTitle) {
       object-fit: cover;
     }
     .card h2 {
-      font-size: 32px;
+      font-size: 31px;
       line-height: 0.95;
       font-weight: 100;
       letter-spacing: 0.8px;
@@ -904,7 +905,7 @@ function generateTemplate2(products, collectionTitle) {
     }
     .footer-text {
       font-family: 'Papyrus', fantasy, sans-serif;
-      font-size: 20px;
+      font-size: 22px;
       color: #4d372c;
       font-style: normal;
     }
