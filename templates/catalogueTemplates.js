@@ -73,7 +73,8 @@ const buildDescription = (product) => {
   const waxType = product.waxType 
     ? product.waxType.charAt(0).toUpperCase() + product.waxType.slice(1)
     : 'Soy';
-  return `| Natural ${waxType} Wax |<br>Aromatherapy Candle | Perfect<br>for Home Decor & Gifting<br>(${weight}g - ${burnTime}hrs)`;
+  const dimensionsPart = product.dimensions ? `(${product.dimensions})` : '';
+  return `| Natural ${waxType} Wax |<br>Aromatherapy Candle | Perfect for Home Decor & Gifting${dimensionsPart}(${weight}g - ${burnTime}hrs)`;
 };
 
 // Helper to build badge text
