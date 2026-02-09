@@ -679,11 +679,11 @@ function generateTemplate1(products, collectionTitle) {
     }
     .card h2 {
       font-size: 32px;
-      line-height: 0.9;
+      line-height: 0.95;
       font-weight: 100;
       letter-spacing: 0.8px;
       text-align: center;
-      padding: 4px;
+      padding: 8px 4px 4px 4px;
     }
     .badge {
       background-color: var(--badge-bg);
@@ -867,11 +867,11 @@ function generateTemplate2(products, collectionTitle) {
     }
     .card h2 {
       font-size: 32px;
-      line-height: 0.9;
+      line-height: 0.95;
       font-weight: 100;
       letter-spacing: 0.8px;
       text-align: center;
-      padding: 4px;
+      padding: 8px 4px 4px 4px;
     }
     .badge {
       background-color: var(--badge-bg);
