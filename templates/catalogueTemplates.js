@@ -611,7 +611,7 @@ function generateTemplate1(products, collectionTitle) {
       background-color: var(--bg-color);
       position: relative;
       overflow: hidden;
-      padding: 30px 40px;
+      padding: 16px 40px 30px 40px;
       display: flex;
       flex-direction: column;
     }
@@ -710,7 +710,7 @@ function generateTemplate1(products, collectionTitle) {
     .candlestick {
       position: absolute;
       right: 30px;
-      top: 400px;
+      top: 380px;
       width: 180px;
       z-index: 1;
     }
@@ -799,7 +799,7 @@ function generateTemplate2(products, collectionTitle) {
       background-color: var(--bg-color);
       position: relative;
       overflow: hidden;
-      padding: 30px 40px;
+      padding: 16px 40px 30px 40px;
       display: flex;
       flex-direction: column;
     }
@@ -900,7 +900,7 @@ function generateTemplate2(products, collectionTitle) {
     .candlestick {
       position: absolute;
       left: 30px;
-      top: 400px;
+      top: 380px;
       width: 180px;
       z-index: 1;
     }
