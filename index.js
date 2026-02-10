@@ -548,11 +548,14 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
       return res.status(403).json({ error: "Access Denied" });
     }
 
-    console.log("🔍 Fetching active products...");
+    console.log("🔍 Fetching active products (excluding bulk)...");
     const snap = await db.collection("products").where("isActive", "!=", false).get();
-    const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const allProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    
+    // Filter out bulk products (only include normal products)
+    const products = allProducts.filter(p => p.isBulk !== true);
 
-    console.log(`📦 Found ${products.length} active products`);
+    console.log(`📦 Found ${products.length} normal products (${allProducts.length - products.length} bulk products excluded)`);
     if (products.length === 0) {
       return res.status(404).json({ error: "No active products found" });
     }
