@@ -172,15 +172,20 @@ function generateMultiPageCatalogue(products) {
   });
 
   let templateToggle = true; // Start with template 1
+  const orphanProducts = []; // Collect orphaned products
 
   // Generate pages for each category
   Object.keys(productsByCategory).forEach(category => {
     const categoryProducts = productsByCategory[category];
     const collectionTitle = collectionNames[category] || category.charAt(0).toUpperCase() + category.slice(1);
 
-    // Split into chunks of 5 products per page
-    for (let i = 0; i < categoryProducts.length; i += 5) {
-      const chunk = categoryProducts.slice(i, i + 5);
+    // Calculate how many full pages we can make (5 products each)
+    const fullPages = Math.floor(categoryProducts.length / 5);
+    const orphanCount = categoryProducts.length % 5;
+
+    // Add only full pages for this category
+    for (let i = 0; i < fullPages; i++) {
+      const chunk = categoryProducts.slice(i * 5, (i + 1) * 5);
       
       // Alternate between templates
       const pageHtml = templateToggle 
@@ -190,7 +195,101 @@ function generateMultiPageCatalogue(products) {
       pages.push(pageHtml);
       templateToggle = !templateToggle;
     }
+
+    // Collect orphan products with their category info
+    if (orphanCount > 0) {
+      const orphans = categoryProducts.slice(fullPages * 5);
+      orphans.forEach(product => {
+        orphanProducts.push({ product, category, collectionTitle });
+      });
+    }
   });
+
+  // Process orphan products at the end
+  if (orphanProducts.length > 0) {
+    console.log(`📦 Processing ${orphanProducts.length} orphaned products...`);
+    
+    // Group orphans by category
+    const orphansByCategory = {};
+    orphanProducts.forEach(({ product, category, collectionTitle }) => {
+      if (!orphansByCategory[category]) {
+        orphansByCategory[category] = {
+          products: [],
+          collectionTitle
+        };
+      }
+      orphansByCategory[category].products.push(product);
+    });
+
+    // Sort categories by count (descending) to prioritize larger groups
+    const sortedOrphanCategories = Object.keys(orphansByCategory).sort((a, b) => {
+      return orphansByCategory[b].products.length - orphansByCategory[a].products.length;
+    });
+
+    console.log(`   Orphan breakdown by category:`);
+    sortedOrphanCategories.forEach(cat => {
+      console.log(`     - ${orphansByCategory[cat].collectionTitle}: ${orphansByCategory[cat].products.length} products`);
+    });
+
+    // Build pages intelligently - group same categories together when possible
+    const orphanPages = [];
+    const remainingOrphans = { ...orphansByCategory };
+
+    while (Object.keys(remainingOrphans).some(cat => remainingOrphans[cat].products.length > 0)) {
+      const currentPage = [];
+      const pageCategoryCounts = {};
+
+      // Try to fill page with products from the same category first
+      for (const category of sortedOrphanCategories) {
+        if (!remainingOrphans[category] || remainingOrphans[category].products.length === 0) continue;
+
+        const available = remainingOrphans[category].products.length;
+        const needed = 5 - currentPage.length;
+        const toTake = Math.min(available, needed);
+
+        for (let i = 0; i < toTake; i++) {
+          const product = remainingOrphans[category].products.shift();
+          currentPage.push({
+            product,
+            category,
+            collectionTitle: remainingOrphans[category].collectionTitle
+          });
+        }
+
+        pageCategoryCounts[category] = (pageCategoryCounts[category] || 0) + toTake;
+
+        if (currentPage.length === 5) break;
+      }
+
+      // Determine page label based on dominant category on THIS page
+      let pageLabel = currentPage[0].collectionTitle;
+      let maxCountOnPage = 0;
+      Object.keys(pageCategoryCounts).forEach(cat => {
+        if (pageCategoryCounts[cat] > maxCountOnPage) {
+          maxCountOnPage = pageCategoryCounts[cat];
+          pageLabel = orphansByCategory[cat].collectionTitle;
+        }
+      });
+
+      orphanPages.push({
+        products: currentPage.map(o => o.product),
+        label: pageLabel,
+        breakdown: pageCategoryCounts
+      });
+    }
+
+    // Generate HTML for orphan pages
+    orphanPages.forEach((pageData, idx) => {
+      const pageHtml = templateToggle 
+        ? generateTemplate1(pageData.products, pageData.label)
+        : generateTemplate2(pageData.products, pageData.label);
+      
+      pages.push(pageHtml);
+      templateToggle = !templateToggle;
+
+      console.log(`   Orphan Page ${idx + 1}: "${pageData.label}" (${pageData.products.length} products)`);
+    });
+  }
   
   // Add customization page at the end
   console.log("📄 Adding customization page...");

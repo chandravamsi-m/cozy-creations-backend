@@ -715,8 +715,9 @@ function generateTemplate1(products, collectionTitle) {
       z-index: 1;
     }
     footer {
-      margin-top: 20px;
+      margin-top: auto;
       text-align: center;
+      padding-top: 20px;
       padding-bottom: 15px;
     }
     .footer-text {
@@ -904,8 +905,9 @@ function generateTemplate2(products, collectionTitle) {
       z-index: 1;
     }
     footer {
-      margin-top: 22px;
+      margin-top: auto;
       text-align: center;
+      padding-top: 20px;
       padding-bottom: 15px;
     }
     .footer-text {
