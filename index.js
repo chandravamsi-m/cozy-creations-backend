@@ -414,6 +414,33 @@ app.delete("/api/admin/users/:uid", maybeAuth, async (req, res) => {
   }
 });
 
+app.post("/api/admin/users", maybeAuth, async (req, res) => {
+  try {
+    if (!(await isAdminUid(req.user?.uid)))
+      return res.status(403).json({ error: "Forbidden" });
+
+    const { email, password, displayName, role } = req.body;
+
+    const userRecord = await admin.auth().createUser({
+      email,
+      password,
+      displayName,
+    });
+
+    await db.collection("users").doc(userRecord.uid).set({
+      uid: userRecord.uid,
+      email,
+      displayName,
+      role: role || "user",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.json({ success: true, uid: userRecord.uid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
   console.log("📥 Catalogue Generation Request Received");
   try {
