@@ -11,6 +11,8 @@ const {
   generateAboutPage, 
   generateTemplate1, 
   generateTemplate2, 
+  generateBulkTemplate1,
+  generateBulkTemplate2,
   generateCustomizationPage,
   generateContactPage,
   collectionNames 
@@ -296,9 +298,112 @@ function generateMultiPageCatalogue(products) {
   pages.push(generateCustomizationPage());
   
   // Add contact page as the final page
-  console.log("📄 Adding contact & gift page...");
+  console.log("📄 Adding contact page...");
   pages.push(generateContactPage());
 
+  console.log(`📚 Total pages: ${pages.length}`);
+  return pages;
+}
+
+// ------------------------------------------
+// BULK CATALOGUE GENERATION HELPER
+// ------------------------------------------
+
+function generateMultiPageBulkCatalogue(products) {
+  const pages = [];
+  
+  // Add intro pages first
+  console.log("📄 Adding welcome page...");
+  pages.push(generateWelcomePage());
+  
+  console.log("📄 Adding about us page...");
+  pages.push(generateAboutPage());
+  
+  // For bulk products, just create pages without category grouping
+  // since it's all bulk anyway
+  let templateToggle = true; // Start with template 1
+  const orphanProducts = []; // Collect orphaned products
+  
+  // Group products by category (if they have one)
+  const productsByCategory = {};
+  products.forEach(p => {
+    const cat = p.category || 'bulk';
+    if (!productsByCategory[cat]) {
+      productsByCategory[cat] = [];
+    }
+    productsByCategory[cat].push(p);
+  });
+
+  // Generate pages for each category
+  Object.keys(productsByCategory).forEach(category => {
+    const categoryProducts = productsByCategory[category];
+    const collectionTitle = "Bulk";  // Fixed title for bulk catalogue
+
+    // Calculate how many full pages we can make (5 products each)
+    const fullPages = Math.floor(categoryProducts.length / 5);
+    const orphanCount = categoryProducts.length % 5;
+
+    // Add only full pages for this category
+    for (let i = 0; i < fullPages; i++) {
+      const chunk = categoryProducts.slice(i * 5, (i + 1) * 5);
+      
+      // Alternate between bulk templates
+      const pageHtml = templateToggle 
+        ? generateBulkTemplate1(chunk, collectionTitle)
+        : generateBulkTemplate2(chunk, collectionTitle);
+      
+      pages.push(pageHtml);
+      templateToggle = !templateToggle;
+    }
+
+    // Collect orphan products with their category info
+    if (orphanCount > 0) {
+      const orphans = categoryProducts.slice(fullPages * 5);
+      orphans.forEach(product => {
+        orphanProducts.push({ product, category, collectionTitle });
+      });
+    }
+  });
+
+  // Process orphan products at the end
+  if (orphanProducts.length > 0) {
+    console.log(`📦 Processing ${orphanProducts.length} orphaned bulk products...`);
+    
+    // Build pages with orphans
+    const orphanPages = [];
+    const currentPage = [];
+    
+    orphanProducts.forEach(({ product }) => {
+      currentPage.push(product);
+      
+      if (currentPage.length === 5) {
+        const pageHtml = templateToggle 
+          ? generateBulkTemplate1(currentPage, "Bulk")
+          : generateBulkTemplate2(currentPage, "Bulk");
+        pages.push(pageHtml);
+        templateToggle = !templateToggle;
+        currentPage.length = 0;
+      }
+    });
+    
+    // Handle any remaining orphans
+    if (currentPage.length > 0) {
+      const pageHtml = templateToggle 
+        ? generateBulkTemplate1(currentPage, "Bulk")
+        : generateBulkTemplate2(currentPage, "Bulk");
+      pages.push(pageHtml);
+    }
+  }
+  
+  // Add customization page at the end
+  console.log("📄 Adding customization page...");
+  pages.push(generateCustomizationPage());
+  
+  // Add contact page as the final page
+  console.log("📄 Adding contact page...");
+  pages.push(generateContactPage());
+
+  console.log(`📚 Total bulk pages: ${pages.length}`);
   return pages;
 }
 
@@ -643,6 +748,103 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
   } catch (err) {
     console.error("❌ Catalogue Generation Error:", err);
     res.status(500).json({ error: "Failed to generate catalogue", details: err.message });
+  }
+});
+
+// Bulk Catalogue Generation
+app.get("/api/admin/generate-bulk-catalogue", maybeAuth, async (req, res) => {
+  console.log("📥 Bulk Catalogue Generation Request Received");
+  try {
+    if (!(await isAdminUid(req.user?.uid))) {
+      console.warn("🚫 Unauthorized Bulk Catalogue Request:", req.user?.uid);
+      return res.status(403).json({ error: "Access Denied" });
+    }
+
+    console.log("🔍 Fetching active bulk products...");
+    const snap = await db.collection("products").where("isActive", "!=", false).get();
+    const allProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    
+    // Filter to include ONLY bulk products
+    const products = allProducts.filter(p => p.isBulk === true);
+
+    console.log(`📦 Found ${products.length} bulk products (${allProducts.length - products.length} normal products excluded)`);
+    if (products.length === 0) {
+      return res.status(404).json({ error: "No active bulk products found" });
+    }
+
+    console.log("📄 Generating multi-page bulk catalogue...");
+    const pages = generateMultiPageBulkCatalogue(products);
+    console.log(`📑 Generated ${pages.length} pages`);
+
+    console.log("🌐 Launching Puppeteer...");
+    
+    const launchOptions = {
+      headless: "new",
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    };
+
+    const browser = await puppeteer.launch(launchOptions);
+
+    const pdfBuffers = [];
+
+    for (let i = 0; i < pages.length; i++) {
+      console.log(`⏳ Rendering page ${i + 1}/${pages.length}...`);
+      const page = await browser.newPage();
+      page.setDefaultNavigationTimeout(120000); 
+      page.setDefaultTimeout(120000);
+
+      await page.setContent(pages[i], { 
+        waitUntil: "load",
+        timeout: 120000 
+      });
+      
+      // Wait for all fonts to be loaded
+      console.log("   Waiting for fonts...");
+      try {
+        await page.evaluateHandle(() => document.fonts.ready);
+        const fontStatus = await page.evaluate(() => {
+          return Array.from(document.fonts).map(f => `${f.family} (${f.status})`).join(', ');
+        });
+        console.log("   Fonts status:", fontStatus);
+      } catch (fErr) {
+        console.log("   Font wait warning:", fErr.message);
+      }
+      
+      const pdfBuffer = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
+        preferCSSPageSize: false,
+        tagged: false
+      });
+      
+      pdfBuffers.push(pdfBuffer);
+      await page.close();
+    }
+
+    console.log("✅ All pages rendered, merging PDFs...");
+    await browser.close();
+
+    // Merge all PDF buffers into a single document
+    const mergedPdf = await PDFDocument.create();
+    
+    for (const pdfBuffer of pdfBuffers) {
+      const pdf = await PDFDocument.load(pdfBuffer);
+      const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+      copiedPages.forEach((page) => mergedPdf.addPage(page));
+    }
+
+    const finalPdf = await mergedPdf.save();
+    console.log(`📚 Merged ${pdfBuffers.length} pages into final bulk PDF`);
+
+    res.contentType("application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=cozy-creations-bulk-catalogue.pdf");
+    res.header('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.send(finalPdf);
+
+  } catch (err) {
+    console.error("❌ Bulk Catalogue Generation Error:", err);
+    res.status(500).json({ error: "Failed to generate bulk catalogue", details: err.message });
   }
 });
 

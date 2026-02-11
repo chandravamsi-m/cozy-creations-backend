@@ -13,6 +13,7 @@ const linesLeftUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548
 const candlestickUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/candlestick_ljryjs.svg";
 const lampUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/lamp_svjx60.svg";
 const qrCodeUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770618965/Vector_iajl4o.svg";
+const starBadgeUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770800754/Star-badge_ttci0q.svg";
 
 // Common Font Styles for PDF embedding (Cloudinary-hosted)
 const fontStyles = `
@@ -82,6 +83,15 @@ const buildBadge = (product) => {
   const pack = product.quantityPack || 1;
   const price = product.price || 0;
   return `Pack of ${pack} - ₹${price}/ + courier`;
+};
+
+// Helper to build bulk badge text with pricing
+const buildBulkBadge = (product) => {
+  const bulkQty = product.bulkQuantity || 20;
+  const unitPrice = product.price || 0;
+  const totalMRP = unitPrice * bulkQty;
+  const bulkPrice = product.bulkPrice || 0;
+  return `<div>Pack of 1x${bulkQty} - <span class="old-price">₹${totalMRP.toLocaleString()}</span> ₹${bulkPrice.toLocaleString()}/ + courier</div>`;
 };
 
 // Welcome Page (index3) - First page of catalogue
@@ -938,6 +948,482 @@ function generateTemplate2(products, collectionTitle) {
   `;
 }
 
+// Bulk Template 1: Right-side decorative lines with qty-badge
+function generateBulkTemplate1(products, collectionTitle) {
+  const productsHtml = products.slice(0, 5).map(p => {
+    const { formatted: productName, fontSize } = formatProductName(p.name);
+    const optimizedImageUrl = optimizeCloudinaryUrl(p.imageUrl);
+    const bulkQty = p.bulkQuantity || 20;
+    return `
+    <div class="card">
+      <div class="product-image-container">
+        <img src="${optimizedImageUrl}" alt="${p.name}">
+        <div class="qty-badge">x${bulkQty}</div>
+      </div>
+      <h2 style="font-size: ${fontSize}px;">${productName}</h2>
+      <div class="badge">${buildBulkBadge(p)}</div>
+      <div class="description">${buildDescription(p)}</div>
+    </div>
+  `;
+  }).join('');
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cozy Catalogue - Bulk Collection</title>
+  <style>
+    ${fontStyles}
+    :root {
+      --bg-color: #FFC592;
+      --card-bg: #4F3629;
+      --badge-bg: #FFC727;
+      --text-white: #ffffff;
+      --text-dark: #000000;
+    }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background-color: #e5e5e5;
+      display: flex;
+      justify-content: center;
+      padding: 0;
+      font-family: 'Non Ophelie Display Trial', serif;
+    }
+    .a4-page {
+      width: 210mm;
+      height: 297mm;
+      background-color: var(--bg-color);
+      position: relative;
+      overflow: hidden;
+      padding: 16px 40px 30px 40px;
+      display: flex;
+      flex-direction: column;
+    }
+    .decorative-lines {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 500px;
+      z-index: 1;
+      pointer-events: none;
+    }
+    header {
+      position: relative;
+      z-index: 2;
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-size: 48px;
+      color: #4d372c;
+      line-height: 1.1;
+      font-weight: 400;
+      margin-bottom: 8px;
+    }
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      position: relative;
+      z-index: 2;
+      max-width: 900px;
+      margin-top: 18px;
+    }
+    .product-grid .card:nth-child(1) { grid-column: 1 / 2; }
+    .product-grid .card:nth-child(2) { grid-column: 2 / 3; }
+    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 144px; }
+    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 144px; }
+    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 144px; }
+    .card {
+      background-color: var(--card-bg);
+      border-radius: 40px;
+      padding: 52px 8px 8px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      color: var(--text-white);
+      width: 100%;
+      position: relative;
+      margin-top: 100px;
+    }
+    .product-image-container {
+      width: 85%;
+      aspect-ratio: 1 / 1;
+      background-color: #c8c0b4;
+      border-radius: 20px;
+      overflow: visible;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: -140px;
+      left: 50%;
+      transform: translateX(-50%);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .product-image-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 20px;
+    }
+    .qty-badge {
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      width: 52px;
+      height: 52px;
+      background-image: url('${starBadgeUrl}');
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      color: var(--text-white);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 800;
+      z-index: 10;
+      font-family: 'Non Ophelie Display Trial';
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+      padding-bottom: 2px;
+    }
+    .card h2 {
+      font-size: 31px;
+      line-height: 0.95;
+      font-weight: 100;
+      letter-spacing: 0.8px;
+      text-align: center;
+      padding: 8px 4px 4px 4px;
+    }
+    .badge {
+      background-color: var(--badge-bg);
+      color: var(--text-dark);
+      padding: 0px 8px;
+      border-radius: 10px;
+      font-weight: 100;
+      font-size: 20px;
+      line-height: 1.2;
+      margin-bottom: 5px;
+      width: 96%;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+      word-wrap: break-word;
+    }
+    .old-price {
+      position: relative;
+      display: inline-block;
+      text-decoration: none;
+      opacity: 0.7;
+      font-size: 16px;
+    }
+    .old-price::after {
+      content: "";
+      position: absolute;
+      top: 30%;
+      left: 0%;
+      width: 100%;
+      height: 1px;
+      background: currentColor;
+      transform: rotate(-12deg);
+    }
+    .description {
+      font-size: 14px;
+      line-height: 1.4;
+      opacity: 0.7 !important;
+      padding: 4px 4px;
+      font-family: 'Papyrus', fantasy, sans-serif;
+    }
+    .candlestick {
+      position: absolute;
+      right: 30px;
+      top: 380px;
+      width: 180px;
+      z-index: 1;
+    }
+    footer {
+      margin-top: auto;
+      text-align: center;
+      padding-top: 20px;
+      padding-bottom: 15px;
+    }
+    .footer-text {
+      font-family: 'Papyrus', fantasy, sans-serif;
+      font-size: 22px;
+      color: #4d372c;
+      font-style: normal;
+    }
+  </style>
+</head>
+<body>
+  ${fontForceLoadHtml}
+  <div class="a4-page">
+    <img src="${linesRightUrl}" alt="" class="decorative-lines">
+    <header>
+      <h1>Our Bulk<br>Collection...</h1>
+    </header>
+    <main class="product-grid">
+      ${productsHtml}
+    </main>
+    <img src="${candlestickUrl}" alt="" class="candlestick">
+    <footer>
+      <div class="footer-text">Customization Available on All products</div>
+    </footer>
+  </div>
+</body>
+</html>
+  `;
+}
+
+// Bulk Template 2: Left-side decorative lines with qty-badge
+function generateBulkTemplate2(products, collectionTitle) {
+  const productsHtml = products.slice(0, 5).map(p => {
+    const { formatted: productName, fontSize } = formatProductName(p.name);
+    const optimizedImageUrl = optimizeCloudinaryUrl(p.imageUrl);
+    const bulkQty = p.bulkQuantity || 20;
+    return `
+    <div class="card">
+      <div class="product-image-container">
+        <img src="${optimizedImageUrl}" alt="${p.name}">
+        <div class="qty-badge">x${bulkQty}</div>
+      </div>
+      <h2 style="font-size: ${fontSize}px;">${productName}</h2>
+      <div class="badge">${buildBulkBadge(p)}</div>
+      <div class="description">${buildDescription(p)}</div>
+    </div>
+  `;
+  }).join('');
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cozy Catalogue - Bulk Collection</title>
+  <style>
+    ${fontStyles}
+    :root {
+      --bg-color: #FFC592;
+      --card-bg: #4F3629;
+      --badge-bg: #FFC727;
+      --text-white: #ffffff;
+      --text-dark: #000000;
+    }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background-color: #e5e5e5;
+      display: flex;
+      justify-content: center;
+      padding: 0;
+      font-family: 'Non Ophelie Display Trial', serif;
+    }
+    .a4-page {
+      width: 210mm;
+      height: 297mm;
+      background-color: var(--bg-color);
+      position: relative;
+      overflow: hidden;
+      padding: 16px 40px 30px 40px;
+      display: flex;
+      flex-direction: column;
+    }
+    .decorative-lines {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 500px;
+      z-index: 1;
+      pointer-events: none;
+    }
+    header {
+      position: relative;
+      z-index: 2;
+      margin-bottom: 20px;
+      text-align: right;
+    }
+    h1 {
+      font-size: 48px;
+      color: #4d372c;
+      line-height: 1.1;
+      font-weight: 400;
+      margin-bottom: 8px;
+    }
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      position: relative;
+      z-index: 2;
+      max-width: 900px;
+      margin-top: 18px;
+      margin-left: auto;
+    }
+    .product-grid .card:nth-child(1) { grid-column: 2 / 3; }
+    .product-grid .card:nth-child(2) { grid-column: 3 / 4; }
+    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 144px; }
+    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 144px; }
+    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 144px; }
+    .card {
+      background-color: var(--card-bg);
+      border-radius: 40px;
+      padding: 52px 8px 8px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      color: var(--text-white);
+      width: 100%;
+      position: relative;
+      margin-top: 100px;
+    }
+    .product-image-container {
+      width: 85%;
+      aspect-ratio: 1 / 1;
+      background-color: #c8c0b4;
+      border-radius: 20px;
+      overflow: visible;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: -140px;
+      left: 50%;
+      transform: translateX(-50%);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .product-image-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 20px;
+    }
+    .qty-badge {
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      width: 52px;
+      height: 52px;
+      background-image: url('${starBadgeUrl}');
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      color: var(--text-white);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 800;
+      z-index: 10;
+      font-family: 'Non Ophelie Display Trial';
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+      padding-bottom: 2px;
+    }
+    .card h2 {
+      font-size: 31px;
+      line-height: 0.95;
+      font-weight: 100;
+      letter-spacing: 0.8px;
+      text-align: center;
+      padding: 8px 4px 4px 4px;
+    }
+    .badge {
+      background-color: var(--badge-bg);
+      color: var(--text-dark);
+      padding: 0px 8px;
+      border-radius: 10px;
+      font-weight: 100;
+      font-size: 20px;
+      line-height: 1.2;
+      margin-bottom: 5px;
+      width: 96%;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+      word-wrap: break-word;
+    }
+    .old-price {
+      position: relative;
+      display: inline-block;
+      text-decoration: none;
+      opacity: 0.7;
+      font-size: 16px;
+    }
+    .old-price::after {
+      content: "";
+      position: absolute;
+      top: 30%;
+      left: 0%;
+      width: 100%;
+      height: 1px;
+      background: currentColor;
+      transform: rotate(-12deg);
+    } 
+    .description {
+      font-size: 14px;
+      line-height: 1.4;
+      opacity: 0.7 !important;
+      padding: 4px 4px;
+      font-family: 'Papyrus', fantasy, sans-serif;
+    }
+    .candlestick {
+      position: absolute;
+      left: 30px;
+      top: 380px;
+      width: 180px;
+      z-index: 1;
+    }
+    footer {
+      margin-top: auto;
+      text-align: center;
+      padding-top: 20px;
+      padding-bottom: 15px;
+    }
+    .footer-text {
+      font-family: 'Papyrus', fantasy, sans-serif;
+      font-size: 22px;
+      color: #4d372c;
+      font-style: normal;
+    }
+  </style>
+</head>
+<body>
+  ${fontForceLoadHtml}
+  <div class="a4-page">
+    <img src="${linesLeftUrl}" alt="" class="decorative-lines">
+    <header>
+      <h1>Our Bulk<br>Collection...</h1>
+    </header>
+    <main class="product-grid">
+      ${productsHtml}
+    </main>
+    <img src="${candlestickUrl}" alt="" class="candlestick">
+    <footer>
+      <div class="footer-text">Customization Available on All products</div>
+    </footer>
+  </div>
+</body>
+</html>
+  `;
+}
+
 // Contact & Gift Page - Final page of catalogue
 function generateContactPage() {
   return `
@@ -1226,6 +1712,8 @@ module.exports = {
   generateAboutPage,
   generateTemplate1,
   generateTemplate2,
+  generateBulkTemplate1,
+  generateBulkTemplate2,
   generateCustomizationPage,
   generateContactPage,
   collectionNames
