@@ -4,6 +4,7 @@ const admin = require("firebase-admin");
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
 const { Resend } = require("resend");
+const cloudinary = require("cloudinary").v2;
 const puppeteer = require("puppeteer");
 const { PDFDocument } = require("pdf-lib");
 const { 
@@ -53,6 +54,23 @@ const razorpay = new Razorpay({
 
 // Resend Email
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Helper function to extract Cloudinary public ID from URL
+function extractCloudinaryPublicId(imageUrl) {
+  if (!imageUrl || !imageUrl.includes('cloudinary.com')) return null;
+  
+  // Match pattern: /v<version>/<public_id>.<extension>
+  // Example: https://res.cloudinary.com/dumkblp3v/image/upload/v1234567890/product_abc123.jpg
+  const match = imageUrl.match(/\/v\d+\/([^\/]+)\.(jpg|jpeg|png|gif|webp|svg)/);
+  return match ? match[1] : null;
+}
 const EMAIL_FROM = process.env.EMAIL_FROM;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 
@@ -469,6 +487,32 @@ app.delete("/api/admin/products/:id/permanent", maybeAuth, async (req, res) => {
   try {
     if (!(await isAdminUid(req.user?.uid)))
       return res.status(403).json({ error: "Access Denied" });
+    
+    // Fetch product to get imageUrl before deletion
+    const productDoc = await db.collection("products").doc(req.params.id).get();
+    
+    if (productDoc.exists) {
+      const productData = productDoc.data();
+      const imageUrl = productData.imageUrl;
+      
+      // Try to delete from Cloudinary, but don't block database deletion if it fails
+      if (imageUrl) {
+        try {
+          const publicId = extractCloudinaryPublicId(imageUrl);
+          if (publicId) {
+            const result = await cloudinary.uploader.destroy(publicId);
+            console.log(`🗑️ Cloudinary image deleted: ${publicId}`, result);
+          } else {
+            console.warn(`⚠️ Could not extract public ID from URL: ${imageUrl}`);
+          }
+        } catch (cloudinaryError) {
+          console.error(`❌ Cloudinary deletion failed for ${imageUrl}:`, cloudinaryError.message);
+          // Continue with database deletion even if Cloudinary fails
+        }
+      }
+    }
+    
+    // Delete from database
     await db.collection("products").doc(req.params.id).delete();
     res.json({ success: true });
   } catch (err) {
