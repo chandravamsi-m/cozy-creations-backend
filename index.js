@@ -521,6 +521,173 @@ app.delete("/api/admin/products/:id/permanent", maybeAuth, async (req, res) => {
 });
 
 // ------------------------------------------
+// OFFER MANAGEMENT ENDPOINTS
+// ------------------------------------------
+
+// GET active offer (public)
+app.get("/api/offers/active", async (req, res) => {
+  try {
+    const offerDoc = await db.collection("settings").doc("offerBanner").get();
+    
+    if (!offerDoc.exists || !offerDoc.data().isActive) {
+      return res.json({ offer: null });
+    }
+    
+    res.json({ offer: offerDoc.data() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET current offer settings (admin only)
+app.get("/api/admin/offers", maybeAuth, async (req, res) => {
+  try {
+    if (!(await isAdminUid(req.user?.uid)))
+      return res.status(403).json({ error: "Access Denied" });
+    
+    const offerDoc = await db.collection("settings").doc("offerBanner").get();
+    
+    if (!offerDoc.exists) {
+      // Return default settings if none exist
+      return res.json({
+        offer: {
+          isActive: false,
+          offerText: "Special Offer - Shop Now!",
+          email: "cozycreationscorner13@gmail.com",
+          phone: "+91 80194 01322"
+        }
+      });
+    }
+    
+    res.json({ offer: offerDoc.data() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// UPDATE offer settings (admin only)
+app.put("/api/admin/offers", maybeAuth, async (req, res) => {
+  try {
+    if (!(await isAdminUid(req.user?.uid)))
+      return res.status(403).json({ error: "Access Denied" });
+    
+    const { 
+      isActive, offerText, email, phone,
+      hasDiscount, discountType, discountValue,
+      applicableToAll, applicableCategories, applicableProducts,
+      minCartValue
+    } = req.body;
+    
+    const offerData = {
+      // Banner settings
+      isActive: isActive !== undefined ? isActive : false,
+      offerText: offerText || "",
+      email: email || "cozycreationscorner13@gmail.com",
+      phone: phone || "+91 80194 01322",
+      
+      // Discount settings
+      hasDiscount: hasDiscount !== undefined ? hasDiscount : false,
+      discountType: discountType || "percentage",
+      discountValue: discountValue !== undefined ? discountValue : 0,
+      
+      // Targeting
+      applicableToAll: applicableToAll !== undefined ? applicableToAll : true,
+      applicableCategories: applicableCategories || [],
+      applicableProducts: applicableProducts || [],
+      
+      // Constraints
+      minCartValue: minCartValue !== undefined ? minCartValue : 0,
+      
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    
+    await db.collection("settings").doc("offerBanner").set(offerData, { merge: true });
+    
+    res.json({ success: true, offer: offerData });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// CALCULATE discount for a product (public)
+app.post("/api/offers/calculate-discount", async (req, res) => {
+  try {
+    const { productId, productPrice, category } = req.body;
+    
+    // Fetch active offer
+    const offerDoc = await db.collection("settings").doc("offerBanner").get();
+    
+    if (!offerDoc.exists || !offerDoc.data().hasDiscount) {
+      return res.json({ 
+        hasDiscount: false,
+        originalPrice: productPrice,
+        discountedPrice: productPrice,
+        savedAmount: 0,
+        discountPercent: 0
+      });
+    }
+    
+    const offer = offerDoc.data();
+    
+    // Check if product qualifies for discount
+    let qualifies = false;
+    
+    if (offer.applicableToAll) {
+      qualifies = true;
+    } else {
+      // Check category filter
+      if (offer.applicableCategories && offer.applicableCategories.length > 0) {
+        if (offer.applicableCategories.includes(category)) {
+          qualifies = true;
+        }
+      }
+      
+      // Check product filter
+      if (offer.applicableProducts && offer.applicableProducts.length > 0) {
+        if (offer.applicableProducts.includes(productId)) {
+          qualifies = true;
+        }
+      }
+    }
+    
+    if (!qualifies) {
+      return res.json({ 
+        hasDiscount: false,
+        originalPrice: productPrice,
+        discountedPrice: productPrice,
+        savedAmount: 0,
+        discountPercent: 0
+      });
+    }
+    
+    // Calculate discount
+    let discountAmount = 0;
+    let discountPercent = 0;
+    
+    if (offer.discountType === "percentage") {
+      discountPercent = offer.discountValue;
+      discountAmount = (productPrice * offer.discountValue) / 100;
+    } else if (offer.discountType === "fixed") {
+      discountAmount = Math.min(offer.discountValue, productPrice); // Cap at product price
+      discountPercent = Math.round((discountAmount / productPrice) * 100);
+    }
+    
+    const discountedPrice = Math.max(0, productPrice - discountAmount);
+    
+    res.json({
+      hasDiscount: true,
+      originalPrice: productPrice,
+      discountedPrice: Math.round(discountedPrice),
+      savedAmount: Math.round(discountAmount),
+      discountPercent: discountPercent,
+      discountType: offer.discountType
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ------------------------------------------
 // ORDER & PAYMENT FLOW
 // ------------------------------------------
 
