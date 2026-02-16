@@ -66,9 +66,9 @@ cloudinary.config({
 function extractCloudinaryPublicId(imageUrl) {
   if (!imageUrl || !imageUrl.includes('cloudinary.com')) return null;
   
-  // Match pattern: /v<version>/<public_id>.<extension>
-  // Example: https://res.cloudinary.com/dumkblp3v/image/upload/v1234567890/product_abc123.jpg
-  const match = imageUrl.match(/\/v\d+\/([^\/]+)\.(jpg|jpeg|png|gif|webp|svg)/);
+  // Match pattern: .../upload/v<version>/<public_id>.<extension>
+  // Handles potential double slashes before version and supports public IDs with folders
+  const match = imageUrl.match(/\/*v\d+\/(.+)\.(jpg|jpeg|png|gif|webp|svg)$/);
   return match ? match[1] : null;
 }
 const EMAIL_FROM = process.env.EMAIL_FROM;
@@ -975,8 +975,10 @@ app.get("/api/admin/generate-bulk-catalogue", maybeAuth, async (req, res) => {
     const snap = await db.collection("products").where("isActive", "!=", false).get();
     const allProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     
-    // Filter to include ONLY bulk products
-    const products = allProducts.filter(p => p.isBulk === true);
+    // Filter to include ONLY bulk products (check for bulkPricingTiers as primary indicator)
+    const products = allProducts.filter(p => 
+      (p.bulkPricingTiers && p.bulkPricingTiers.length > 0) || p.isBulk === true
+    );
 
     console.log(`📦 Found ${products.length} bulk products (${allProducts.length - products.length} normal products excluded)`);
     if (products.length === 0) {

@@ -62,7 +62,10 @@ const formatProductName = (name) => {
   const formatted = name;
   // Calculate font size based on name length
   const baseLength = 20; // Expected average length
-  const fontSize = name.length > baseLength ? Math.max(20, 30 - Math.floor((name.length - baseLength) / 3)) : 30;
+  // Middle ground scaling for better balance between size and fit (3 lines max)
+  const fontSize = name.length > baseLength 
+    ? Math.max(18, 29 - Math.floor((name.length - baseLength) / 2)) 
+    : 29;
   return { formatted, fontSize };
 };
 
@@ -85,13 +88,29 @@ const buildBadge = (product) => {
   return `Pack of ${pack} - ₹${price}/ + courier`;
 };
 
-// Helper to build bulk badge text with pricing
+// Helper to build bulk badge text with pricing tiers
 const buildBulkBadge = (product) => {
-  const bulkQty = product.bulkQuantity || 20;
-  const unitPrice = product.price || 0;
-  const totalMRP = unitPrice * bulkQty;
-  const bulkPrice = product.bulkPrice || 0;
-  return `<div>Pack of 1x${bulkQty} - <span class="old-price">₹${totalMRP.toLocaleString()}</span> ₹${bulkPrice.toLocaleString()}/ + courier</div>`;
+  if (product.bulkPricingTiers && product.bulkPricingTiers.length > 0) {
+    const tierCount = product.bulkPricingTiers.length;
+    // Dynamic font size based on tier count
+    let fontSize = 17;
+    if (tierCount === 1) fontSize = 24;
+    else if (tierCount === 2) fontSize = 21;
+    else if (tierCount >= 4) fontSize = 14; // Smaller font for 4+ tiers
+
+    const tierStrings = product.bulkPricingTiers.map((tier) => {
+      // Clean format: "XX Pcs - YY/- per pc"
+      return `<div class="tier-line">${tier.minQty} Pcs - ${tier.pricePerPc}/- per pc</div>`;
+    });
+
+    // Always display vertically
+    return `<div class="tiers-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: ${fontSize}px; line-height: 1.1;">
+      ${tierStrings.join('')}
+    </div>`;
+  }
+
+  // No fallback, only return tiers if they exist
+  return "";
 };
 
 // Welcome Page (index3) - First page of catalogue
@@ -694,11 +713,13 @@ function generateTemplate1(products, collectionTitle) {
     }
     .card h2 {
       font-size: 31px;
-      line-height: 0.95;
+      line-height: 1.1;
       font-weight: 100;
       letter-spacing: 0.8px;
       text-align: center;
       padding: 8px 4px 4px 4px;
+      max-height: 3.6em; /* Approx 3 lines at 1.1 line-height */
+      overflow: hidden;
     }
     .badge {
       background-color: var(--badge-bg);
@@ -884,11 +905,13 @@ function generateTemplate2(products, collectionTitle) {
     }
     .card h2 {
       font-size: 31px;
-      line-height: 0.95;
+      line-height: 1.1;
       font-weight: 100;
       letter-spacing: 0.8px;
       text-align: center;
       padding: 8px 4px 4px 4px;
+      max-height: 3.6em; /* Approx 3 lines at 1.1 line-height */
+      overflow: hidden;
     }
     .badge {
       background-color: var(--badge-bg);
@@ -953,12 +976,10 @@ function generateBulkTemplate1(products, collectionTitle) {
   const productsHtml = products.slice(0, 5).map(p => {
     const { formatted: productName, fontSize } = formatProductName(p.name);
     const optimizedImageUrl = optimizeCloudinaryUrl(p.imageUrl);
-    const bulkQty = p.bulkQuantity || 20;
     return `
     <div class="card">
       <div class="product-image-container">
         <img src="${optimizedImageUrl}" alt="${p.name}">
-        <div class="qty-badge">x${bulkQty}</div>
       </div>
       <h2 style="font-size: ${fontSize}px;">${productName}</h2>
       <div class="badge">${buildBulkBadge(p)}</div>
@@ -1016,7 +1037,7 @@ function generateBulkTemplate1(products, collectionTitle) {
     header {
       position: relative;
       z-index: 2;
-      margin-bottom: 20px;
+      margin-bottom: 8px;
     }
     h1 {
       font-size: 48px;
@@ -1036,13 +1057,13 @@ function generateBulkTemplate1(products, collectionTitle) {
     }
     .product-grid .card:nth-child(1) { grid-column: 1 / 2; }
     .product-grid .card:nth-child(2) { grid-column: 2 / 3; }
-    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 144px; }
-    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 144px; }
-    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 144px; }
+    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 120px; }
+    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 120px; }
+    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 120px; }
     .card {
       background-color: var(--card-bg);
       border-radius: 40px;
-      padding: 52px 8px 8px 8px;
+      padding: 80px 8px 8px 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -1062,7 +1083,7 @@ function generateBulkTemplate1(products, collectionTitle) {
       align-items: center;
       justify-content: center;
       position: absolute;
-      top: -140px;
+      top: -110px;
       left: 50%;
       transform: translateX(-50%);
       box-shadow: 0 4px 8px rgba(0,0,0,0.1);
@@ -1073,34 +1094,15 @@ function generateBulkTemplate1(products, collectionTitle) {
       object-fit: cover;
       border-radius: 20px;
     }
-    .qty-badge {
-      position: absolute;
-      top: -10px;
-      right: -10px;
-      width: 52px;
-      height: 52px;
-      background-image: url('${starBadgeUrl}');
-      background-size: contain;
-      background-repeat: no-repeat;
-      background-position: center;
-      color: var(--text-white);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      font-weight: 800;
-      z-index: 10;
-      font-family: 'Non Ophelie Display Trial';
-      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
-      padding-bottom: 2px;
-    }
     .card h2 {
       font-size: 31px;
-      line-height: 0.95;
+      line-height: 1.1;
       font-weight: 100;
       letter-spacing: 0.8px;
       text-align: center;
       padding: 8px 4px 4px 4px;
+      max-height: 3.6em; /* Approx 3 lines at 1.1 line-height */
+      overflow: hidden;
     }
     .badge {
       background-color: var(--badge-bg);
@@ -1108,17 +1110,23 @@ function generateBulkTemplate1(products, collectionTitle) {
       padding: 0px 8px;
       border-radius: 10px;
       font-weight: 100;
-      font-size: 20px;
-      line-height: 1.2;
-      margin-bottom: 5px;
-      width: 96%;
-      height: 56px;
+      font-size: 19px;
+      line-height: 1;
+      letter-spacing: 0.1px;
+      margin-bottom: 6px;
+      width: 100%;
+      height: 70px;
       display: flex;
       align-items: center;
       justify-content: center;
       text-align: center;
       overflow: hidden;
       word-wrap: break-word;
+      font-family: 'Non Ophelie Display Trial', serif;
+    }
+    .separator {
+      opacity: 0.5;
+      margin: 0 4px;
     }
     .old-price {
       position: relative;
@@ -1190,12 +1198,10 @@ function generateBulkTemplate2(products, collectionTitle) {
   const productsHtml = products.slice(0, 5).map(p => {
     const { formatted: productName, fontSize } = formatProductName(p.name);
     const optimizedImageUrl = optimizeCloudinaryUrl(p.imageUrl);
-    const bulkQty = p.bulkQuantity || 20;
     return `
     <div class="card">
       <div class="product-image-container">
         <img src="${optimizedImageUrl}" alt="${p.name}">
-        <div class="qty-badge">x${bulkQty}</div>
       </div>
       <h2 style="font-size: ${fontSize}px;">${productName}</h2>
       <div class="badge">${buildBulkBadge(p)}</div>
@@ -1253,7 +1259,7 @@ function generateBulkTemplate2(products, collectionTitle) {
     header {
       position: relative;
       z-index: 2;
-      margin-bottom: 20px;
+      margin-bottom: 8px;
       text-align: right;
     }
     h1 {
@@ -1275,13 +1281,13 @@ function generateBulkTemplate2(products, collectionTitle) {
     }
     .product-grid .card:nth-child(1) { grid-column: 2 / 3; }
     .product-grid .card:nth-child(2) { grid-column: 3 / 4; }
-    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 144px; }
-    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 144px; }
-    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 144px; }
+    .product-grid .card:nth-child(3) { grid-column: 1 / 2; margin-top: 120px; }
+    .product-grid .card:nth-child(4) { grid-column: 2 / 3; margin-top: 120px; }
+    .product-grid .card:nth-child(5) { grid-column: 3 / 4; margin-top: 120px; }
     .card {
       background-color: var(--card-bg);
       border-radius: 40px;
-      padding: 52px 8px 8px 8px;
+      padding: 80px 8px 8px 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -1301,7 +1307,7 @@ function generateBulkTemplate2(products, collectionTitle) {
       align-items: center;
       justify-content: center;
       position: absolute;
-      top: -140px;
+      top: -110px;
       left: 50%;
       transform: translateX(-50%);
       box-shadow: 0 4px 8px rgba(0,0,0,0.1);
@@ -1312,34 +1318,15 @@ function generateBulkTemplate2(products, collectionTitle) {
       object-fit: cover;
       border-radius: 20px;
     }
-    .qty-badge {
-      position: absolute;
-      top: -10px;
-      right: -10px;
-      width: 52px;
-      height: 52px;
-      background-image: url('${starBadgeUrl}');
-      background-size: contain;
-      background-repeat: no-repeat;
-      background-position: center;
-      color: var(--text-white);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      font-weight: 800;
-      z-index: 10;
-      font-family: 'Non Ophelie Display Trial';
-      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
-      padding-bottom: 2px;
-    }
     .card h2 {
       font-size: 31px;
-      line-height: 0.95;
+      line-height: 1.1;
       font-weight: 100;
       letter-spacing: 0.8px;
       text-align: center;
       padding: 8px 4px 4px 4px;
+      max-height: 3.6em; /* Approx 3 lines at 1.1 line-height */
+      overflow: hidden;
     }
     .badge {
       background-color: var(--badge-bg);
@@ -1347,17 +1334,23 @@ function generateBulkTemplate2(products, collectionTitle) {
       padding: 0px 8px;
       border-radius: 10px;
       font-weight: 100;
-      font-size: 20px;
-      line-height: 1.2;
-      margin-bottom: 5px;
-      width: 96%;
-      height: 56px;
+      font-size: 19px;
+      line-height: 1;
+      letter-spacing: 0.1px;
+      margin-bottom: 6px;
+      width: 100%;
+      height: 70px;
       display: flex;
       align-items: center;
       justify-content: center;
       text-align: center;
       overflow: hidden;
       word-wrap: break-word;
+      font-family: 'Non Ophelie Display Trial', serif;
+    }
+    .separator {
+      opacity: 0.5;
+      margin: 0 4px;
     }
     .old-price {
       position: relative;
