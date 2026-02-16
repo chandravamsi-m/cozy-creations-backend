@@ -740,6 +740,9 @@ app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
       ...orderData,
       userId: req.user?.uid || "guest",
       status: "pending",
+      statusHistory: {
+        pending: admin.firestore.FieldValue.serverTimestamp()
+      },
       paymentId: razorpay_payment_id,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -774,6 +777,9 @@ app.post("/api/orders/place-cod", maybeAuth, async (req, res) => {
       customerName,
       userEmail,
       status: "pending",
+      statusHistory: {
+        pending: admin.firestore.FieldValue.serverTimestamp()
+      },
       paymentMethod: "cod",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -809,6 +815,7 @@ app.patch("/api/admin/orders/:id", maybeAuth, async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     await db.collection("orders").doc(req.params.id).update({
       status: req.body.status,
+      [`statusHistory.${req.body.status.toLowerCase()}`]: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     res.json({ success: true });
