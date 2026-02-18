@@ -572,18 +572,20 @@ app.put("/api/admin/offers", maybeAuth, async (req, res) => {
       return res.status(403).json({ error: "Access Denied" });
     
     const { 
-      isActive, offerText, email, phone,
+      isActive, offerText, offerHeading, email, phone,
       hasDiscount, discountType, discountValue,
       applicableToAll, applicableCategories, applicableProducts,
-      minCartValue
+      minCartValue, bannerImageUrl
     } = req.body;
     
     const offerData = {
       // Banner settings
       isActive: isActive !== undefined ? isActive : false,
       offerText: offerText || "",
+      offerHeading: offerHeading || "Special Offer",
       email: email || "cozycreationscorner13@gmail.com",
       phone: phone || "+91 80194 01322",
+      bannerImageUrl: bannerImageUrl || "",
       
       // Discount settings
       hasDiscount: hasDiscount !== undefined ? hasDiscount : false,
@@ -604,6 +606,53 @@ app.put("/api/admin/offers", maybeAuth, async (req, res) => {
     await db.collection("settings").doc("offerBanner").set(offerData, { merge: true });
     
     res.json({ success: true, offer: offerData });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ------------------------------------------
+// DELIVERY SETTINGS ENDPOINTS
+// ------------------------------------------
+
+// GET delivery settings (public)
+app.get("/api/settings/delivery", async (req, res) => {
+  try {
+    const doc = await db.collection("settings").doc("delivery").get();
+    if (!doc.exists) {
+      return res.json({
+        delivery: {
+          isActive: false,
+          amount: 0,
+          freeDeliveryThreshold: 0,
+          message: ""
+        }
+      });
+    }
+    res.json({ delivery: doc.data() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// UPDATE delivery settings (admin)
+app.put("/api/admin/settings/delivery", maybeAuth, async (req, res) => {
+  try {
+    if (!(await isAdminUid(req.user?.uid)))
+      return res.status(403).json({ error: "Access Denied" });
+
+    const { isActive, amount, freeDeliveryThreshold, message } = req.body;
+
+    const data = {
+      isActive: isActive !== undefined ? isActive : false,
+      amount: typeof amount === "number" ? amount : 0,
+      freeDeliveryThreshold: typeof freeDeliveryThreshold === "number" ? freeDeliveryThreshold : 0,
+      message: message || "",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    await db.collection("settings").doc("delivery").set(data, { merge: true });
+    res.json({ success: true, delivery: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
