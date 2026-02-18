@@ -862,11 +862,15 @@ app.patch("/api/admin/orders/:id", maybeAuth, async (req, res) => {
   try {
     if (!(await isAdminUid(req.user?.uid)))
       return res.status(403).json({ error: "Forbidden" });
-    await db.collection("orders").doc(req.params.id).update({
+    const updateData = {
       status: req.body.status,
       [`statusHistory.${req.body.status.toLowerCase()}`]: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+    if (req.body.expectedDeliveryDate) {
+      updateData.expectedDeliveryDate = req.body.expectedDeliveryDate;
+    }
+    await db.collection("orders").doc(req.params.id).update(updateData);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1179,14 +1183,25 @@ app.post("/api/send-order-confirmation", async (req, res) => {
 
 app.post("/api/send-status-update", async (req, res) => {
   try {
+    const { email, status, name, expectedDeliveryDate } = req.body;
+    let deliveryNote = "";
+    if (expectedDeliveryDate) {
+      const dateStr = new Date(expectedDeliveryDate).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+      deliveryNote = `<p style="margin-top:16px; font-weight:700; color:#166534;">Estimated Arrival: ${dateStr}</p>`;
+    }
+
     await resend.emails.send({
       from: `Cozy Creations <${EMAIL_FROM}>`,
-      to: req.body.email,
-      subject: `Order Update - ${req.body.status}`,
+      to: email,
+      subject: `Order Update - ${status}`,
       html: wrapLayout(
         "Order Update 📦",
-        `<div style="padding:20px; background:#f0fdf4; border-radius:12px; text-align:center;"><h3 style="margin:0; color:#166534;">Status: ${req.body.status.toUpperCase()}</h3></div><p style="margin-top:20px;">We'll keep you posted as your order progresses.</p>`,
-        req.body.name
+        `<div style="padding:20px; background:#f0fdf4; border-radius:12px; text-align:center;"><h3 style="margin:0; color:#166534;">Status: ${status.toUpperCase()}</h3>${deliveryNote}</div><p style="margin-top:20px;">We'll keep you posted as your order progresses.</p>`,
+        name
       ),
     });
     res.json({ success: true });
