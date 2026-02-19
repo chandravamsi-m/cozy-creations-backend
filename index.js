@@ -62,6 +62,10 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// Global progress tracking for catalogue generation
+// key: userId, value: { progress: number, currentAction: string }
+const catalogueProgress = new Map();
+
 // Helper function to extract Cloudinary public ID from URL
 function extractCloudinaryPublicId(imageUrl) {
   if (!imageUrl || !imageUrl.includes('cloudinary.com')) return null;
@@ -89,6 +93,18 @@ async function maybeAuth(req, res, next) {
   }
   next();
 }
+
+// ------------------------------------------
+// CATALOGUE GENERATION STATUS
+// ------------------------------------------
+
+app.get("/api/admin/catalogue-status", maybeAuth, async (req, res) => {
+  if (!(await isAdminUid(req.user?.uid))) {
+    return res.status(403).json({ error: "Access Denied" });
+  }
+  const status = catalogueProgress.get(req.user.uid) || { progress: 0, currentAction: "idle" };
+  res.json(status);
+});
 
 async function isAdminUid(uid) {
   if (!uid) return false;
@@ -1000,8 +1016,12 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
     const browser = await puppeteer.launch(launchOptions);
 
     const pdfBuffers = [];
+    const userId = req.user.uid;
 
     for (let i = 0; i < pages.length; i++) {
+      const progressPercent = Math.round((i / pages.length) * 100);
+      catalogueProgress.set(userId, { progress: progressPercent, currentAction: `Rendering page ${i + 1}/${pages.length}` });
+
       console.log(`⏳ Rendering page ${i + 1}/${pages.length}...`);
       const page = await browser.newPage();
       // Increase timeout for Render's slower environment
@@ -1017,10 +1037,6 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
       console.log("   Waiting for fonts...");
       try {
         await page.evaluateHandle(() => document.fonts.ready);
-        const fontStatus = await page.evaluate(() => {
-          return Array.from(document.fonts).map(f => `${f.family} (${f.status})`).join(', ');
-        });
-        console.log("   Fonts status:", fontStatus);
       } catch (fErr) {
         console.log("   Font wait warning:", fErr.message);
       }
@@ -1037,6 +1053,8 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
       await page.close();
     }
 
+    catalogueProgress.set(userId, { progress: 95, currentAction: "Finalizing PDF..." });
+
     console.log("✅ All pages rendered, merging PDFs...");
     await browser.close();
 
@@ -1050,7 +1068,7 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
     }
 
     const finalPdf = await mergedPdf.save();
-    console.log(`📚 Merged ${pdfBuffers.length} pages into final PDF`);
+    catalogueProgress.delete(userId);
 
     res.contentType("application/pdf");
     res.setHeader("Content-Disposition", "attachment; filename=cozy-creations-catalogue.pdf");
@@ -1058,6 +1076,7 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
     res.send(finalPdf);
 
   } catch (err) {
+    catalogueProgress.delete(req.user?.uid);
     console.error("❌ Catalogue Generation Error:", err);
     res.status(500).json({ error: "Failed to generate catalogue", details: err.message });
   }
@@ -1100,8 +1119,12 @@ app.get("/api/admin/generate-bulk-catalogue", maybeAuth, async (req, res) => {
     const browser = await puppeteer.launch(launchOptions);
 
     const pdfBuffers = [];
+    const userId = req.user.uid;
 
     for (let i = 0; i < pages.length; i++) {
+      const progressPercent = Math.round((i / pages.length) * 100);
+      catalogueProgress.set(userId, { progress: progressPercent, currentAction: `Rendering page ${i + 1}/${pages.length}` });
+
       console.log(`⏳ Rendering page ${i + 1}/${pages.length}...`);
       const page = await browser.newPage();
       page.setDefaultNavigationTimeout(120000); 
@@ -1116,10 +1139,6 @@ app.get("/api/admin/generate-bulk-catalogue", maybeAuth, async (req, res) => {
       console.log("   Waiting for fonts...");
       try {
         await page.evaluateHandle(() => document.fonts.ready);
-        const fontStatus = await page.evaluate(() => {
-          return Array.from(document.fonts).map(f => `${f.family} (${f.status})`).join(', ');
-        });
-        console.log("   Fonts status:", fontStatus);
       } catch (fErr) {
         console.log("   Font wait warning:", fErr.message);
       }
@@ -1135,6 +1154,8 @@ app.get("/api/admin/generate-bulk-catalogue", maybeAuth, async (req, res) => {
       pdfBuffers.push(pdfBuffer);
       await page.close();
     }
+
+    catalogueProgress.set(userId, { progress: 95, currentAction: "Finalizing PDF..." });
 
     console.log("✅ All pages rendered, merging PDFs...");
     await browser.close();
@@ -1152,11 +1173,15 @@ app.get("/api/admin/generate-bulk-catalogue", maybeAuth, async (req, res) => {
     console.log(`📚 Merged ${pdfBuffers.length} pages into final bulk PDF`);
 
     res.contentType("application/pdf");
+    catalogueProgress.delete(userId);
+
+    res.contentType("application/pdf");
     res.setHeader("Content-Disposition", "attachment; filename=cozy-creations-bulk-catalogue.pdf");
     res.header('Access-Control-Expose-Headers', 'Content-Disposition');
     res.send(finalPdf);
 
   } catch (err) {
+    catalogueProgress.delete(req.user?.uid);
     console.error("❌ Bulk Catalogue Generation Error:", err);
     res.status(500).json({ error: "Failed to generate bulk catalogue", details: err.message });
   }
