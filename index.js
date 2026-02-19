@@ -658,6 +658,47 @@ app.put("/api/admin/settings/delivery", maybeAuth, async (req, res) => {
   }
 });
 
+// ------------------------------------------
+// PAYMENT SETTINGS ENDPOINTS
+// ------------------------------------------
+
+// GET payment settings (public)
+app.get("/api/settings/payment", async (req, res) => {
+  try {
+    const doc = await db.collection("settings").doc("payment").get();
+    if (!doc.exists) {
+      return res.json({
+        payment: {
+          isCodEnabled: true, // Default to true
+        }
+      });
+    }
+    res.json({ payment: doc.data() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// UPDATE payment settings (admin)
+app.put("/api/admin/settings/payment", maybeAuth, async (req, res) => {
+  try {
+    if (!(await isAdminUid(req.user?.uid)))
+      return res.status(403).json({ error: "Access Denied" });
+
+    const { isCodEnabled } = req.body;
+
+    const data = {
+      isCodEnabled: isCodEnabled !== undefined ? isCodEnabled : true,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    await db.collection("settings").doc("payment").set(data, { merge: true });
+    res.json({ success: true, payment: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // CALCULATE discount for a product (public)
 app.post("/api/offers/calculate-discount", async (req, res) => {
   try {
