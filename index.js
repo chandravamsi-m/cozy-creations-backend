@@ -1278,21 +1278,53 @@ app.post("/api/send-status-update", async (req, res) => {
 });
 
 app.post("/api/send-password-reset", async (req, res) => {
+  const { email } = req.body;
   try {
-    const link = await admin.auth().generatePasswordResetLink(req.body.email);
-    await resend.emails.send({
-      from: `Cozy Creations <${EMAIL_FROM}>`,
-      to: req.body.email,
-      subject: "Reset Your Password",
-      html: wrapLayout(
-        "Password Reset",
-        `<p>Click below to reset your password:</p><a href="${link}" style="display:inline-block; margin-top:16px; padding:12px 24px; background:#111827; color:#fff; text-decoration:none; border-radius:8px;">Reset Password</a>`,
-        "Customer"
-      ),
-    });
+    // 1. Fetch user to check provider
+    const userRecord = await admin.auth().getUserByEmail(email);
+    const hasPasswordProvider = userRecord.providerData.some(p => p.providerId === "password");
+
+    if (hasPasswordProvider) {
+      // 2a. Handle Email/Password User
+      const link = await admin.auth().generatePasswordResetLink(email);
+      await resend.emails.send({
+        from: `Cozy Creations <${EMAIL_FROM}>`,
+        to: email,
+        subject: "Reset Your Password - Cozy Creations 🕯️",
+        html: wrapLayout(
+          "Password Reset",
+          `<p>We received a request to reset your password. Click the button below to secure your account:</p>
+           <div style="text-align: center; margin: 32px 0;">
+             <a href="${link}" style="display:inline-block; padding:14px 28px; background:#111827; color:#fff; text-decoration:none; border-radius:8px; font-weight:600; font-size:16px;">Reset My Password</a>
+           </div>
+           <p style="color:#6b7280; font-size:14px;">If you didn't request this, you can safely ignore this email.</p>`,
+          userRecord.displayName || "Customer"
+        ),
+      });
+    } else {
+      // 2b. Handle Google-only User (Friendly Reminder)
+      await resend.emails.send({
+        from: `Cozy Creations <${EMAIL_FROM}>`,
+        to: email,
+        subject: "Login Verification - Cozy Creations 🕯️",
+        html: wrapLayout(
+          "Use Google Login",
+          `<div style="background:#f0f9ff; padding:24px; border-radius:12px; border:1px solid #bae6fd;">
+             <p style="margin:0; color:#0369a1; font-weight:600;">It looks like you use Google Login!</p>
+             <p style="margin-top:12px; color:#075985;">Your account is secured via Google, so you don't even need a password for Cozy Creations. Simply click the <strong>'Continue with Google'</strong> button on our login screen to access your account instantly.</p>
+           </div>`,
+          userRecord.displayName || "Customer"
+        ),
+      });
+    }
+
     res.json({ success: true });
   } catch (err) {
     console.error("❌ Password Reset Error:", err);
+    // If user not found, we don't want to leak that info for security, so we still say "Success"
+    if (err.code === 'auth/user-not-found') {
+      return res.json({ success: true, message: "If an account exists, a link has been sent." });
+    }
     res.status(500).json({ success: false, error: err.message });
   }
 });
