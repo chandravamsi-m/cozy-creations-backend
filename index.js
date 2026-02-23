@@ -66,6 +66,76 @@ cloudinary.config({
 // key: userId, value: { progress: number, currentAction: string }
 const catalogueProgress = new Map();
 
+// ------------------------------------------
+// CATALOGUE ASSET PREFETCH (runs once at startup)
+// ------------------------------------------
+
+// All static assets used across catalogue/bulk-catalogue templates.
+// These never change, so we fetch them ONCE and embed as base64 data URLs.
+// This eliminates ~14 Cloudinary round-trips PER PAGE during PDF generation.
+const CATALOGUE_STATIC_URLS = [
+  // Custom fonts (biggest offenders — ~200-300KB each, fetched per page tab)
+  'https://res.cloudinary.com/dumkblp3v/raw/upload/v1770554569/papyrus_cwxj89.ttf',
+  'https://res.cloudinary.com/dumkblp3v/raw/upload/v1770554592/NonOphelieDisplay-Regular-BF67107f6e3063a_aqqjn2.ttf',
+  // Decorative SVGs (used on every product page)
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/linesright_hk7t3j.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/linesleft_gx8o8w.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/candlestick_ljryjs.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/lamp_svjx60.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770618965/Vector_iajl4o.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770800754/Star-badge_ttci0q.svg',
+  // Page-specific static images (welcome, about, customization pages)
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548599/heroimage_ueotan.jpg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548514/logo_wq2xws.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548517/topcandle_mduuda.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/bottomcandle_y5u5y5.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548486/candlelogo_c3qvmb.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1767176149/unnamed-7_j6fal6.webp',
+];
+
+// Map<originalCloudinaryUrl, base64DataUrl> — populated at startup
+let catalogueAssetCache = new Map();
+
+async function _fetchAsBase64(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buffer = await res.arrayBuffer();
+    let contentType = (res.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim();
+    // Ensure correct MIME types for common cases where CDNs may return text/plain
+    if (url.endsWith('.svg') && !contentType.includes('svg')) contentType = 'image/svg+xml';
+    if (url.endsWith('.ttf')) contentType = 'font/truetype';
+    return `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`;
+  } catch (err) {
+    console.warn(`⚠️  Asset prefetch failed for ${url.split('/').pop()}: ${err.message}`);
+    return null; // Graceful fallback — Cloudinary URL stays in template
+  }
+}
+
+async function prefetchCatalogueAssets() {
+  console.log(`🖼️  Pre-fetching ${CATALOGUE_STATIC_URLS.length} catalogue assets...`);
+  const results = await Promise.all(
+    CATALOGUE_STATIC_URLS.map(async (url) => [url, await _fetchAsBase64(url)])
+  );
+  let successCount = 0;
+  for (const [url, dataUrl] of results) {
+    if (dataUrl) { catalogueAssetCache.set(url, dataUrl); successCount++; }
+  }
+  console.log(`✅  Catalogue assets ready: ${successCount}/${CATALOGUE_STATIC_URLS.length} inlined.`);
+}
+
+// Replace all known Cloudinary static URLs with in-memory base64 data URLs.
+// Product image URLs are dynamic (per-product) and intentionally left as-is.
+function inlineCatalogueAssets(html) {
+  if (catalogueAssetCache.size === 0) return html;
+  let result = html;
+  for (const [url, dataUrl] of catalogueAssetCache) {
+    // split/join is faster than replaceAll for large strings
+    result = result.split(url).join(dataUrl);
+  }
+  return result;
+}
+
 // Helper function to extract Cloudinary public ID from URL
 function extractCloudinaryPublicId(imageUrl) {
   if (!imageUrl || !imageUrl.includes('cloudinary.com')) return null;
@@ -1015,42 +1085,48 @@ app.get("/api/admin/generate-catalogue", maybeAuth, async (req, res) => {
 
     const browser = await puppeteer.launch(launchOptions);
 
-    const pdfBuffers = [];
+    const pdfBuffers = new Array(pages.length);
     const userId = req.user.uid;
+    const BATCH_SIZE = 3; // Render up to 3 pages concurrently
 
-    for (let i = 0; i < pages.length; i++) {
-      const progressPercent = Math.round((i / pages.length) * 100);
-      catalogueProgress.set(userId, { progress: progressPercent, currentAction: `Rendering page ${i + 1}/${pages.length}` });
+    for (let batchStart = 0; batchStart < pages.length; batchStart += BATCH_SIZE) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, pages.length);
+      const batchIndices = Array.from({ length: batchEnd - batchStart }, (_, k) => batchStart + k);
 
-      console.log(`⏳ Rendering page ${i + 1}/${pages.length}...`);
-      const page = await browser.newPage();
-      // Increase timeout for Render's slower environment
-      page.setDefaultNavigationTimeout(120000); 
-      page.setDefaultTimeout(120000);
-
-      await page.setContent(pages[i], { 
-        waitUntil: "load",
-        timeout: 120000 
+      const progressPercent = Math.round((batchStart / pages.length) * 100);
+      catalogueProgress.set(userId, {
+        progress: progressPercent,
+        currentAction: `Rendering pages ${batchStart + 1}-${batchEnd} of ${pages.length}`,
       });
-      
-      // Wait for all fonts to be loaded before catching the PDF
-      console.log("   Waiting for fonts...");
-      try {
-        await page.evaluateHandle(() => document.fonts.ready);
-      } catch (fErr) {
-        console.log("   Font wait warning:", fErr.message);
-      }
-      
-      const pdfBuffer = await page.pdf({
-        format: "A4",
-        printBackground: true,
-        margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
-        preferCSSPageSize: false,
-        tagged: false  // Disable PDF tagging for smaller file size
-      });
-      
-      pdfBuffers.push(pdfBuffer);
-      await page.close();
+      console.log(`⏳ Rendering pages ${batchStart + 1}-${batchEnd}/${pages.length} (batch of ${batchIndices.length})...`);
+
+      await Promise.all(
+        batchIndices.map(async (i) => {
+          const page = await browser.newPage();
+          page.setDefaultNavigationTimeout(120000);
+          page.setDefaultTimeout(120000);
+
+          // Inline all static Cloudinary assets — fonts + decorative images read from memory (no network)
+          const inlinedHtml = inlineCatalogueAssets(pages[i]);
+
+          // networkidle2: wait until ≤2 pending connections (only dynamic product images remain)
+          await page.setContent(inlinedHtml, { waitUntil: 'networkidle2', timeout: 120000 });
+
+          // Fonts are now embedded as base64 so document.fonts.ready resolves instantly
+          try { await page.evaluateHandle(() => document.fonts.ready); } catch (e) {}
+
+          const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
+            preferCSSPageSize: false,
+            tagged: false,
+          });
+
+          pdfBuffers[i] = pdfBuffer;
+          await page.close();
+        })
+      );
     }
 
     catalogueProgress.set(userId, { progress: 95, currentAction: "Finalizing PDF..." });
@@ -1118,41 +1194,44 @@ app.get("/api/admin/generate-bulk-catalogue", maybeAuth, async (req, res) => {
 
     const browser = await puppeteer.launch(launchOptions);
 
-    const pdfBuffers = [];
+    const pdfBuffers = new Array(pages.length);
     const userId = req.user.uid;
+    const BATCH_SIZE = 3;
 
-    for (let i = 0; i < pages.length; i++) {
-      const progressPercent = Math.round((i / pages.length) * 100);
-      catalogueProgress.set(userId, { progress: progressPercent, currentAction: `Rendering page ${i + 1}/${pages.length}` });
+    for (let batchStart = 0; batchStart < pages.length; batchStart += BATCH_SIZE) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, pages.length);
+      const batchIndices = Array.from({ length: batchEnd - batchStart }, (_, k) => batchStart + k);
 
-      console.log(`⏳ Rendering page ${i + 1}/${pages.length}...`);
-      const page = await browser.newPage();
-      page.setDefaultNavigationTimeout(120000); 
-      page.setDefaultTimeout(120000);
-
-      await page.setContent(pages[i], { 
-        waitUntil: "load",
-        timeout: 120000 
+      const progressPercent = Math.round((batchStart / pages.length) * 100);
+      catalogueProgress.set(userId, {
+        progress: progressPercent,
+        currentAction: `Rendering pages ${batchStart + 1}-${batchEnd} of ${pages.length}`,
       });
-      
-      // Wait for all fonts to be loaded
-      console.log("   Waiting for fonts...");
-      try {
-        await page.evaluateHandle(() => document.fonts.ready);
-      } catch (fErr) {
-        console.log("   Font wait warning:", fErr.message);
-      }
-      
-      const pdfBuffer = await page.pdf({
-        format: "A4",
-        printBackground: true,
-        margin: { top: "0px", right: "0px", bottom: "0px", left: "0px" },
-        preferCSSPageSize: false,
-        tagged: false
-      });
-      
-      pdfBuffers.push(pdfBuffer);
-      await page.close();
+      console.log(`⏳ Rendering bulk pages ${batchStart + 1}-${batchEnd}/${pages.length} (batch of ${batchIndices.length})...`);
+
+      await Promise.all(
+        batchIndices.map(async (i) => {
+          const page = await browser.newPage();
+          page.setDefaultNavigationTimeout(120000);
+          page.setDefaultTimeout(120000);
+
+          const inlinedHtml = inlineCatalogueAssets(pages[i]);
+          await page.setContent(inlinedHtml, { waitUntil: 'networkidle2', timeout: 120000 });
+
+          try { await page.evaluateHandle(() => document.fonts.ready); } catch (e) {}
+
+          const pdfBuffer = await page.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
+            preferCSSPageSize: false,
+            tagged: false,
+          });
+
+          pdfBuffers[i] = pdfBuffer;
+          await page.close();
+        })
+      );
     }
 
     catalogueProgress.set(userId, { progress: 95, currentAction: "Finalizing PDF..." });
@@ -1412,4 +1491,12 @@ app.post("/api/contact", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  // Pre-fetch all static catalogue assets (fonts + decorative images) at startup.
+  // This eliminates Cloudinary network calls during PDF generation on every request.
+  prefetchCatalogueAssets().catch((err) =>
+    console.warn('⚠️  Catalogue asset prefetch failed at startup (will fall back to Cloudinary URLs):', err.message)
+  );
+});
+
