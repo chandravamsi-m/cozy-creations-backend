@@ -164,6 +164,25 @@ async function maybeAuth(req, res, next) {
   next();
 }
 
+/**
+ * Middleware: Enforces a valid Firebase ID token.
+ * Blocks requests that are missing a token or have an invalid one.
+ */
+async function authenticateToken(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized: Missing token" });
+  }
+  try {
+    const token = authHeader.split(" ")[1];
+    req.user = await admin.auth().verifyIdToken(token);
+    next();
+  } catch (err) {
+    console.error("Auth Error:", err.message);
+    res.status(401).json({ error: "Unauthorized: Invalid token" });
+  }
+}
+
 // ------------------------------------------
 // CATALOGUE GENERATION STATUS
 // ------------------------------------------
@@ -915,11 +934,14 @@ app.post("/api/orders/verify-payment", maybeAuth, async (req, res) => {
     const orderRef = await db.collection("orders").add({
       ...orderData,
       userId: req.user?.uid || "guest",
-      status: "pending",
+      status: "confirmed",
       statusHistory: {
-        pending: admin.firestore.FieldValue.serverTimestamp()
+        pending: admin.firestore.FieldValue.serverTimestamp(),
+        confirmed: admin.firestore.FieldValue.serverTimestamp()
       },
       paymentId: razorpay_payment_id,
+      courierId: orderData.courierId || null,
+      courierName: orderData.courierName || null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -952,6 +974,8 @@ app.post("/api/orders/place-cod", maybeAuth, async (req, res) => {
       shippingAddress,
       customerName,
       userEmail,
+      courierId: req.body.courierId || null,
+      courierName: req.body.courierName || null,
       status: "pending",
       statusHistory: {
         pending: admin.firestore.FieldValue.serverTimestamp()
@@ -1487,6 +1511,458 @@ app.post("/api/contact", async (req, res) => {
   } catch (error) {
     console.error("❌ Contact form error:", error);
     res.status(500).json({ success: false, message: "Failed to submit inquiry" });
+  }
+});
+
+// ------------------------------------------
+// PACKAGING SETTINGS ROUTES
+// ------------------------------------------
+
+const DEFAULT_PACKAGING = {
+  flower:   { l: 12, w: 12, h: 10, actualWeight: 0.4 },
+  animal:   { l: 15, w: 15, h: 12, actualWeight: 0.5 },
+  festive:  { l: 18, w: 15, h: 12, actualWeight: 0.6 },
+  glassjar: { l: 12, w: 12, h: 14, actualWeight: 0.7 },
+  special:  { l: 20, w: 20, h: 15, actualWeight: 0.8 },
+};
+
+/**
+ * GET /api/settings/packaging
+ * Public: Returns per-category packaging dimensions used for volumetric weight calculation.
+ */
+app.get("/api/settings/packaging", async (req, res) => {
+  try {
+    const snap = await db.collection("settings").doc("packaging").get();
+    const saved = snap.exists ? (snap.data().categoryPackaging || {}) : {};
+    // Merge saved values over defaults so any category not yet configured uses a safe default
+    const merged = Object.keys(DEFAULT_PACKAGING).reduce((acc, cat) => {
+      acc[cat] = { ...DEFAULT_PACKAGING[cat], ...(saved[cat] || {}) };
+      return acc;
+    }, {});
+    res.json({ categoryPackaging: merged });
+  } catch (err) {
+    console.error("❌ Packaging settings fetch error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PUT /api/admin/settings/packaging
+ * Admin-only: Save per-category packaging dimensions.
+ * Body: { categoryPackaging: { flower: { l, w, h, actualWeight }, ... } }
+ */
+app.put("/api/admin/settings/packaging", authenticateToken, async (req, res) => {
+  try {
+    if (!(await isAdminUid(req.user?.uid)))
+      return res.status(403).json({ error: "Access Denied" });
+    const { categoryPackaging } = req.body;
+    if (!categoryPackaging) return res.status(400).json({ error: "categoryPackaging is required" });
+    await db.collection("settings").doc("packaging").set({ categoryPackaging }, { merge: true });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Packaging settings save error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ------------------------------------------
+// SHIPROCKET LOGISTICS ROUTES
+// ------------------------------------------
+const { srFetch } = require("./shiprocket");
+
+/**
+ * GET /api/shipping/check-serviceability?pincode=XXXXXX&cod=1
+ * Checks if a destination pincode is serviceable by Shiprocket couriers.
+ */
+app.get("/api/shipping/check-serviceability", authenticateToken, async (req, res) => {
+  const { pincode, cod = 0, weight = 0.5 } = req.query;
+  if (!pincode) return res.status(400).json({ error: "pincode is required" });
+
+  try {
+    const PICKUP_PINCODE = process.env.SHIPROCKET_PICKUP_PINCODE || "110001";
+    const data = await srFetch(
+      `/courier/serviceability/?pickup_postcode=${PICKUP_PINCODE}&delivery_postcode=${pincode}&cod=${cod}&weight=${weight}`
+    );
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error("❌ Shiprocket serviceability error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/orders/create-shipment
+ * Admin-triggered. Creates a shipment in Shiprocket for a confirmed order.
+ * Body: { orderId }
+ */
+app.post("/api/orders/create-shipment", authenticateToken, async (req, res) => {
+  const { orderId } = req.body;
+  if (!orderId) return res.status(400).json({ error: "orderId is required" });
+
+  try {
+    // Fetch order from Firestore
+    const orderRef = db.collection("orders").doc(orderId);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) return res.status(404).json({ error: "Order not found" });
+    const order = orderSnap.data();
+
+    const addr = order.shippingAddress || {};
+    
+    // Validation: Check for mandatory address fields
+    const requiredFields = ["fullName", "street", "city", "pincode", "state", "phone"];
+    const missing = requiredFields.filter(f => !addr[f]);
+    if (missing.length > 0) {
+      return res.status(400).json({ 
+        error: `Incomplete address. Missing fields: ${missing.join(", ")}. Please update the order's shipping address in Firestore first.` 
+      });
+    }
+
+
+    // --- Load per-category packaging config from Firestore ---
+    const pkgSnap = await db.collection("settings").doc("packaging").get();
+    const savedPkg = pkgSnap.exists ? (pkgSnap.data().categoryPackaging || {}) : {};
+    const DEFAULT_PKG = {
+      flower:   { l: 12, w: 12, h: 10 },
+      animal:   { l: 15, w: 15, h: 12 },
+      festive:  { l: 18, w: 15, h: 12 },
+      glassjar: { l: 12, w: 12, h: 14 },
+      special:  { l: 20, w: 20, h: 15 },
+    };
+    const getPkg = (category) => {
+      const cat = (category || "").toLowerCase();
+      return { ...DEFAULT_PKG[cat], ...(savedPkg[cat] || {}) } || { l: 15, w: 15, h: 15 };
+    };
+
+    // Calculate chargeable weight:
+    // - actualWeight = item.weightGrams (from product, saved on order) / 1000
+    // - volumetricWeight = (L × W × H) / 5000  (Shiprocket formula)
+    // - chargeableWeight = max(actual, volumetric) per unit × quantity
+    const totalWeight = Math.max(0.5, Number(
+      (order.items || []).reduce((sum, item) => {
+        const pkg = getPkg(item.category);
+        const actualWeight = item.weightGrams ? (item.weightGrams / 1000) : 0.3;
+        const volumetric = (pkg.l && pkg.w && pkg.h) ? (pkg.l * pkg.w * pkg.h) / 5000 : 0;
+        const chargeable = volumetric > 0 ? Math.max(actualWeight, volumetric) : actualWeight;
+        return sum + ((item.quantity || 1) * chargeable);
+      }, 0).toFixed(2)
+    ));
+
+    // Determine dimensions from the dominant category (most units)
+    const categoryCounts = {};
+    (order.items || []).forEach(item => {
+      const cat = (item.category || "special").toLowerCase();
+      categoryCounts[cat] = (categoryCounts[cat] || 0) + (item.quantity || 1);
+    });
+    const dominantCategory = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "special";
+    const dominantPkg = getPkg(dominantCategory);
+
+    // Split name into first and last (some SR accounts require last_name to be non-empty)
+    const nameParts = (addr.fullName || "").trim().split(" ");
+    const firstName = nameParts[0] || "Customer";
+    const lastName = nameParts.slice(1).join(" ") || ".";
+
+    // Shiprocket expects order_date in "YYYY-MM-DD HH:MM" format
+    const createdAt = order.createdAt?.toDate ? order.createdAt.toDate() : 
+                     (order.createdAt?.seconds ? new Date(order.createdAt.seconds * 1000) : new Date(order.createdAt));
+    const formattedDate = createdAt.toISOString().replace('T', ' ').slice(0, 16);
+
+    const payload = {
+      order_id: orderId,
+      order_date: formattedDate,
+      pickup_location: process.env.SHIPROCKET_PICKUP_LOCATION || "Primary",
+      channel_id: "",
+      comment: "Cozy Creations - Artisanal Order",
+      billing_customer_name: firstName,
+      billing_last_name: lastName,
+      billing_address: String(addr.street),
+      billing_address_2: ".",
+      billing_city: String(addr.city),
+      billing_pincode: String(addr.pincode),
+      billing_state: String(addr.state),
+      billing_country: "India",
+      billing_email: order.userEmail || "customer@example.com",
+      billing_phone: String(addr.phone),
+      shipping_is_billing: 1,
+      shipping_customer_name: firstName,
+      shipping_last_name: lastName,
+      shipping_address: String(addr.street),
+      shipping_address_2: ".",
+      shipping_city: String(addr.city),
+      shipping_pincode: String(addr.pincode),
+      shipping_state: String(addr.state),
+      shipping_country: "India",
+      shipping_email: order.userEmail || "customer@example.com",
+      shipping_phone: String(addr.phone),
+      order_items: (order.items || []).map((item) => ({
+        name: item.name || "Artisanal Product",
+        sku: item.productId || "CUSTOM",
+        units: Number(item.quantity) || 1,
+        selling_price: Number(item.price) || 0,
+        discount: 0,
+        tax: 0,
+      })),
+      payment_method: order.paymentMethod === "cod" ? "COD" : "Prepaid",
+      shipping_charges: 0,
+      giftwrap_charges: 0,
+      transaction_charges: 0,
+      total_discount: 0,
+      sub_total: Number(order.total) || 0,
+      length: dominantPkg.l || 15,
+      breadth: dominantPkg.w || 15,
+      height: dominantPkg.h || 15,
+      weight: totalWeight,
+    };
+
+    console.log(`📦 Sending payload to Shiprocket for order ${orderId}:`, JSON.stringify(payload, null, 2));
+    
+    try {
+      const srResponse = await srFetch("/orders/create/adhoc", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      console.log(`✅ Shiprocket Response for ${orderId}:`, JSON.stringify(srResponse, null, 2));
+
+      // --- NEW: Automatically assign the courier if courierId exists ---
+      if (srResponse.shipment_id && order.courierId) {
+        console.log(`🚚 Assigning courier ${order.courierId} to shipment ${srResponse.shipment_id}...`);
+        try {
+          const assignResponse = await srFetch("/courier/assign/awb", {
+            method: "POST",
+            body: JSON.stringify({
+              shipment_id: srResponse.shipment_id,
+              courier_id: order.courierId,
+            }),
+          });
+          console.log(`✅ Courier assigned:`, JSON.stringify(assignResponse, null, 2));
+          srResponse.payload = assignResponse.response?.data || srResponse.payload;
+        } catch (assignErr) {
+          console.warn(`⚠️ Courier assignment failed (will use SR default):`, assignErr.message);
+        }
+      }
+
+      // Handle Shiprocket logical errors (e.g., Wrong Pickup Location)
+      if (!srResponse.order_id) {
+        let errMsg = srResponse.message || "Shiprocket failed to create order.";
+        if (errMsg.toLowerCase().includes("pickup location")) {
+          const suggested = srResponse.data?.data?.[0]?.pickup_location || "Home";
+          errMsg = `Shiprocket Error: The pickup location nickname "${payload.pickup_location}" is incorrect. Try changing SHIPROCKET_PICKUP_LOCATION in your .env to "${suggested}" and restart the server.`;
+        }
+        throw new Error(errMsg);
+      }
+
+      // Save Shiprocket details back to Firestore
+      const updateData = {
+        shiprocket: {
+          orderId: srResponse.order_id,
+          shipmentId: srResponse.shipment_id,
+          awbCode: srResponse.payload?.awb_code || null,
+          courierName: srResponse.payload?.awb_assign_error ? null : (srResponse.payload?.courier_name || null),
+          status: "created",
+          lastUpdate: new Date().toISOString(),
+        },
+        status: "packed",
+      };
+      await orderRef.update(updateData);
+
+      res.json({ success: true, shiprocket: updateData.shiprocket, raw: srResponse });
+    } catch (srErr) {
+      console.error(`❌ Shiprocket API Error for ${orderId}:`, srErr.message);
+      let errorHint = srErr.message;
+      if (srErr.message?.includes("billing/shipping address first")) {
+        errorHint = "Shiprocket could not find your Pickup Location. Please verify the 'Nickname' in your Shiprocket Dashboard -> Settings -> Pickup Addresses.";
+      }
+      res.status(srErr.message?.includes("Token") ? 401 : 500).json({ 
+        error: errorHint, 
+        details: "Check backend terminal for full Shiprocket response." 
+      });
+    }
+  } catch (err) {
+    console.error("❌ Internal Backend Error:", err);
+    res.status(500).json({ error: "Internal server error. Check logs." });
+  }
+});
+
+/**
+ * GET /api/orders/generate-label/:orderId
+ * Admin: Fetches the shipping label PDF URL from Shiprocket.
+ */
+app.get("/api/orders/generate-label/:orderId", authenticateToken, async (req, res) => {
+  const { orderId } = req.params;
+
+  try {
+    const orderSnap = await db.collection("orders").doc(orderId).get();
+    if (!orderSnap.exists) return res.status(404).json({ error: "Order not found" });
+
+    const order = orderSnap.data();
+    const shipmentId = order.shiprocket?.shipmentId;
+    if (!shipmentId) return res.status(400).json({ error: "Shipment not yet created for this order. Create shipment first." });
+
+    const data = await srFetch("/courier/generate/label", {
+      method: "POST",
+      body: JSON.stringify({ shipment_id: [shipmentId] }),
+    });
+
+    res.json({ success: true, labelUrl: data.label_url, data });
+  } catch (err) {
+    console.error("❌ Label generation error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/orders/:id/sync
+ * Sync Shiprocket status with local Firestore order
+ */
+app.post("/api/admin/orders/:id/sync", maybeAuth, async (req, res) => {
+  try {
+    if (!(await isAdminUid(req.user?.uid)))
+      return res.status(403).json({ error: "Forbidden" });
+
+    const { id } = req.params;
+    const orderRef = db.collection("orders").doc(id);
+    const orderSnap = await orderRef.get();
+    
+    if (!orderSnap.exists) return res.status(404).json({ error: "Order not found" });
+    const order = orderSnap.data();
+
+    const awbCode = order.shiprocket?.awbCode;
+    if (!awbCode) return res.status(400).json({ error: "No AWB code found. Create shipment first." });
+
+    const trackData = await srFetch(`/courier/track/awb/${awbCode}`);
+    const tracking = trackData?.tracking_data?.shipment_track?.[0];
+    const srStatusName = tracking?.current_status || "Created";
+
+    // Re-use logic from webhook for consistency
+    const statusMap = {
+      "Pickup Scheduled": "confirmed",
+      "Pickup Generated": "confirmed",
+      "Picked Up": "shipped",
+      "In Transit": "shipped",
+      "Out For Delivery": "shipped",
+      "Delivered": "delivered",
+      "Undelivered": "shipped",
+      "Cancelled": "cancelled",
+      "RTO Initiated": "shipped",
+      "RTO Delivered": "cancelled",
+    };
+
+    const mappedStatus = statusMap[srStatusName];
+    const updatePayload = {
+      "shiprocket.status": srStatusName,
+      "shiprocket.lastUpdate": new Date().toISOString(),
+    };
+
+    if (mappedStatus && mappedStatus !== order.status) {
+      updatePayload.status = mappedStatus;
+      updatePayload[`statusHistory.${mappedStatus}`] = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    await orderRef.update(updatePayload);
+
+    res.json({ 
+      success: true, 
+      srStatus: srStatusName, 
+      localStatus: updatePayload.status || order.status 
+    });
+  } catch (err) {
+    console.error("❌ Sync error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/orders/track/:orderId
+ * Customer-facing. Returns real-time tracking info for an order.
+ */
+app.get("/api/orders/track/:orderId", async (req, res) => {
+  const { orderId } = req.params;
+
+  try {
+    const orderSnap = await db.collection("orders").doc(orderId).get();
+    if (!orderSnap.exists) return res.status(404).json({ error: "Order not found" });
+
+    const order = orderSnap.data();
+    const awbCode = order.shiprocket?.awbCode;
+
+    if (!awbCode) {
+      return res.json({
+        success: true,
+        tracked: false,
+        message: "Shipment not yet dispatched",
+        shiprocket: order.shiprocket || null,
+      });
+    }
+
+    const data = await srFetch(`/courier/track/awb/${awbCode}`);
+    res.json({ success: true, tracked: true, tracking: data, awbCode, shiprocket: order.shiprocket });
+  } catch (err) {
+    console.error("❌ Track order error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/webhook/shiprocket
+ * Shiprocket pushes delivery status updates here.
+ * Configure this URL in your Shiprocket account: Settings → Webhooks
+ */
+app.post("/api/webhook/shiprocket", async (req, res) => {
+  try {
+    const payload = req.body;
+    console.log("📦 Shiprocket Webhook:", JSON.stringify(payload, null, 2));
+
+    const awbCode = payload.awb || payload.awb_code;
+    const srStatus = payload.current_status || payload.status;
+
+    if (!awbCode || !srStatus) {
+      return res.status(200).json({ received: true, skipped: true });
+    }
+
+    // Map Shiprocket status → our internal status
+    const statusMap = {
+      "Pickup Scheduled": "confirmed",
+      "Pickup Generated": "confirmed",
+      "Picked Up": "shipped",
+      "In Transit": "shipped",
+      "Out For Delivery": "shipped",
+      "Delivered": "delivered",
+      "Undelivered": "shipped",
+      "Cancelled": "cancelled",
+      "RTO Initiated": "shipped",
+      "RTO Delivered": "cancelled",
+    };
+
+    const mappedStatus = statusMap[srStatus];
+
+    // Find the order by AWB code
+    const ordersSnap = await db.collection("orders")
+      .where("shiprocket.awbCode", "==", awbCode)
+      .limit(1)
+      .get();
+
+    if (ordersSnap.empty) {
+      console.warn(`⚠️  Shiprocket webhook: No order found for AWB ${awbCode}`);
+      return res.status(200).json({ received: true, skipped: true });
+    }
+
+    const orderDoc = ordersSnap.docs[0];
+    const updatePayload = {
+      "shiprocket.status": srStatus,
+      "shiprocket.lastUpdate": new Date().toISOString(),
+    };
+
+    if (mappedStatus) {
+      updatePayload.status = mappedStatus;
+      updatePayload[`statusHistory.${mappedStatus}`] = new Date().toISOString();
+    }
+
+    await orderDoc.ref.update(updatePayload);
+    console.log(`✅ Shiprocket webhook: Order ${orderDoc.id} updated → ${srStatus}`);
+    res.status(200).json({ received: true, updated: true, orderId: orderDoc.id, status: srStatus });
+  } catch (err) {
+    console.error("❌ Shiprocket webhook error:", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
