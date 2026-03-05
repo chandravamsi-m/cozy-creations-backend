@@ -1,5 +1,5 @@
 // src/services/shippingService.js
-const { srFetch } = require("../../shiprocket");
+const { srFetch } = require("../utils/shiprocket");
 
 exports.checkServiceability = async (pincode, weight, isCod) => {
   const pickupPincode = process.env.SHIPROCKET_PICKUP_PINCODE || "500081";

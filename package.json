@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "nodemon index.js",
+    "start": "node index.js",
+    "dev": "nodemon index.js",
     "build": "PUPPETEER_CACHE_DIR=./.puppeteer-cache npx puppeteer browsers install chrome",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -19,6 +20,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "firebase-admin": "^13.6.0",
+    "node-fetch": "^2.7.0",
     "nodemon": "^3.1.11",
     "pdf-lib": "^1.17.1",
     "puppeteer": "^24.37.1",
