@@ -21,17 +21,7 @@ exports.checkServiceability = async (req, res) => {
       Number(amount) || 0
     );
 
-    // ── DEBUG LOG: Shiprocket Rate Response ────────────────────────────
-    const couriers = data?.data?.available_courier_companies || [];
-    console.log(`\n📦 Serviceability check: pincode=${pincode} weight=${weight}kg l=${dimensions.l} w=${dimensions.w} h=${dimensions.h} cod=${cod} amount=${amount}`);
-    console.log(`   Found ${couriers.length} couriers`);
-    couriers.slice(0, 5).forEach(c => {
-      console.log(`   [${c.courier_company_id}] ${c.courier_name}`);
-      console.log(`     rate=${c.rate}  total_charges=${c.total_charges}  other_charges=${c.other_charges}  cod_charges=${c.cod_charges}  min_weight=${c.min_weight}`);
-    });
-    // ──────────────────────────────────────────────────────────────────
-
-    // Wrap in { data: ... } because the frontend expects json.data.data.available_courier_companies
+    // Serviceability check successful
     res.json({ data });
   } catch (err) {
     console.error("❌ Serviceability Error:", err.message);
@@ -46,16 +36,11 @@ exports.createShipment = async (req, res) => {
     if (!orderDoc.exists) return res.status(404).json({ error: "Order not found" });
 
     const orderData = { id: orderDoc.id, ...orderDoc.data() };
-    console.log(`🚀 Creating shipment for order ${orderId}...`);
     
     const pkgDoc = await db.collection("settings").doc("packaging").get();
     const packagingConfig = pkgDoc.exists ? (pkgDoc.data().categoryPackaging || {}) : {};
 
-    // Use the courierId saved at checkout time to attempt to assign DTDC
     const courierId = orderData.courierId || null;
-    if (courierId) {
-      console.log(`📦 Requesting courier ID: ${courierId} (${orderData.courierName || ""})`);
-    }
 
     const srResult = await shippingService.createShiprocketOrder(orderData, packagingConfig, courierId);
     console.log("✅ Shiprocket order created:", srResult.order_id);
