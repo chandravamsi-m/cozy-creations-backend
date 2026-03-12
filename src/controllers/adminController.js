@@ -271,3 +271,27 @@ exports.generateBulkCatalogue = async (req, res) => {
     res.status(500).json({ error: "Failed to generate bulk catalogue", details: err.message });
   }
 };
+
+// --- Settings ---
+
+exports.updateDeliverySettings = async (req, res) => {
+  try {
+    const updates = { ...req.body, updatedAt: new Date().toISOString() };
+    await db.collection("settings").doc("delivery").set(updates, { merge: true });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Update Delivery Settings Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.updatePaymentSettings = async (req, res) => {
+  try {
+    const updates = { ...req.body, updatedAt: new Date().toISOString() };
+    await db.collection("settings").doc("payment").set(updates, { merge: true });
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Update Payment Settings Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+};

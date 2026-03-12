@@ -4,10 +4,33 @@ const { db, admin } = require("../config/firebase");
 
 exports.checkServiceability = async (req, res) => {
   try {
-    const { pincode, weight, cod } = req.query;
+    const { pincode, weight, cod, l, w, h, amount } = req.query;
     if (!pincode || !weight) return res.status(400).json({ error: "Missing parameters" });
 
-    const data = await shippingService.checkServiceability(pincode, weight, cod === "1" || cod === "true");
+    const dimensions = {
+      l: Number(l) || 10,
+      w: Number(w) || 10,
+      h: Number(h) || 10
+    };
+
+    const data = await shippingService.checkServiceability(
+      pincode, 
+      weight, 
+      cod === "1" || cod === "true",
+      dimensions,
+      Number(amount) || 0
+    );
+
+    // ── DEBUG LOG: Shiprocket Rate Response ────────────────────────────
+    const couriers = data?.data?.available_courier_companies || [];
+    console.log(`\n📦 Serviceability check: pincode=${pincode} weight=${weight}kg l=${dimensions.l} w=${dimensions.w} h=${dimensions.h} cod=${cod} amount=${amount}`);
+    console.log(`   Found ${couriers.length} couriers`);
+    couriers.slice(0, 5).forEach(c => {
+      console.log(`   [${c.courier_company_id}] ${c.courier_name}`);
+      console.log(`     rate=${c.rate}  total_charges=${c.total_charges}  other_charges=${c.other_charges}  cod_charges=${c.cod_charges}  min_weight=${c.min_weight}`);
+    });
+    // ──────────────────────────────────────────────────────────────────
+
     // Wrap in { data: ... } because the frontend expects json.data.data.available_courier_companies
     res.json({ data });
   } catch (err) {
@@ -28,7 +51,13 @@ exports.createShipment = async (req, res) => {
     const pkgDoc = await db.collection("settings").doc("packaging").get();
     const packagingConfig = pkgDoc.exists ? (pkgDoc.data().categoryPackaging || {}) : {};
 
-    const srResult = await shippingService.createShiprocketOrder(orderData, packagingConfig);
+    // Use the courierId saved at checkout time to attempt to assign DTDC
+    const courierId = orderData.courierId || null;
+    if (courierId) {
+      console.log(`📦 Requesting courier ID: ${courierId} (${orderData.courierName || ""})`);
+    }
+
+    const srResult = await shippingService.createShiprocketOrder(orderData, packagingConfig, courierId);
     console.log("✅ Shiprocket order created:", srResult.order_id);
 
     const shiprocketInfo = {
