@@ -6,5 +6,6 @@ const settingsController = require("../controllers/settingsController");
 router.get("/delivery", settingsController.getDeliverySettings);
 router.get("/payment", settingsController.getPaymentSettings);
 router.get("/packaging", settingsController.getPackagingSettings);
+router.get("/public", settingsController.getPublicSettings);
 
 module.exports = router;

@@ -50,3 +50,21 @@ exports.updatePackagingSettings = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+exports.getPublicSettings = async (req, res) => {
+  try {
+    const [deliveryDoc, paymentDoc, offerDoc] = await Promise.all([
+      db.collection("settings").doc("delivery").get(),
+      db.collection("settings").doc("payment").get(),
+      db.collection("settings").doc("offerBanner").get(),
+    ]);
+
+    res.json({
+      delivery: deliveryDoc.exists ? deliveryDoc.data() : { isActive: false, amount: 0, freeDeliveryThreshold: 0 },
+      payment: paymentDoc.exists ? paymentDoc.data() : { isCodEnabled: true, isPlatformFeeEnabled: false, platformFee: 0 },
+      offer: offerDoc.exists ? offerDoc.data() : { isActive: false }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};

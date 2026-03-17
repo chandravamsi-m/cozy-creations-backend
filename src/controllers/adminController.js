@@ -287,11 +287,16 @@ exports.updateDeliverySettings = async (req, res) => {
 
 exports.updatePaymentSettings = async (req, res) => {
   try {
-    const updates = { ...req.body, updatedAt: new Date().toISOString() };
-    await db.collection("settings").doc("payment").set(updates, { merge: true });
-    res.json({ success: true });
+    const { isCodEnabled, isPlatformFeeEnabled, platformFee } = req.body;
+    const data = {
+      isCodEnabled: isCodEnabled !== undefined ? isCodEnabled : true,
+      isPlatformFeeEnabled: isPlatformFeeEnabled !== undefined ? isPlatformFeeEnabled : false,
+      platformFee: Number(platformFee) || 0,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    await db.collection("settings").doc("payment").set(data, { merge: true });
+    res.json({ success: true, payment: data });
   } catch (err) {
-    console.error("❌ Update Payment Settings Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 };
