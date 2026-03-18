@@ -28,7 +28,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/templates", express.static(path.join(__dirname, "templates")));
 
 // Health check
-app.get("/health", (req, res) => res.json({ status: "ok", timestamp: new Date() }));
+app.get("/health", (req, res) => {
+  console.log("✅ /health ping received at", new Date().toISOString());
+  res.json({ status: "ok", timestamp: new Date() });
+});
 
 // Register Routes
 app.use("/api/admin", adminRoutes);
