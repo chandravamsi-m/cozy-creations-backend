@@ -12,6 +12,9 @@ router.use(async (req, res, next) => {
   res.status(403).json({ error: "Access Denied" });
 });
 
+// Dashboard
+router.get("/dashboard-stats", adminController.getDashboardStats);
+
 // Products
 router.get("/products", adminController.getProducts);
 router.post("/products", adminController.createProduct);

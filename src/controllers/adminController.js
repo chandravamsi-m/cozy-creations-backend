@@ -11,6 +11,178 @@ const {
 const puppeteer = require("puppeteer");
 const { PDFDocument } = require("pdf-lib");
 
+// --- Dashboard Stats ---
+
+exports.getDashboardStats = async (req, res) => {
+  try {
+    // 1. Total Revenue, Total Orders, Sales Trend, Top Products
+    let totalRevenue = 0;
+    let totalOrders = 0;
+    
+    // Setup for 7-day trend
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    const trendDaysMap = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const str = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      trendDaysMap[str] = { date: str, orders: 0 };
+    }
+
+    // Setup for 6-week trend
+    const sixWeeksAgo = new Date();
+    sixWeeksAgo.setDate(sixWeeksAgo.getDate() - 41);
+    sixWeeksAgo.setHours(0, 0, 0, 0);
+    const weeksRanges = [];
+    const trendWeeksMap = {};
+    for (let i = 5; i >= 0; i--) {
+      const start = new Date();
+      start.setDate(start.getDate() - (i * 7 + 6));
+      start.setHours(0,0,0,0);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23,59,59,999);
+      
+      const label = `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+      weeksRanges.push({ start, end, label });
+      trendWeeksMap[label] = { date: label, orders: 0 };
+    }
+
+    // Setup for 6-month trend
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setDate(1); 
+    sixMonthsAgo.setHours(0, 0, 0, 0);
+    const trendMonthsMap = {};
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const monthStr = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      trendMonthsMap[monthStr] = { date: monthStr, orders: 0 };
+    }
+
+    const statusCountMap = {};
+
+    const ordersSnap = await db.collection("orders").get();
+    totalOrders = ordersSnap.size;
+
+    ordersSnap.forEach(doc => {
+      const data = doc.data();
+      
+      // Sales Trend Logging (Concurrent ranges)
+      let orderDate = null;
+      if (data.createdAt) {
+        orderDate = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt._seconds * 1000);
+      }
+      
+      if (orderDate) {
+        // days map
+        if (orderDate >= sevenDaysAgo) {
+          const dayStr = orderDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          if (trendDaysMap[dayStr]) trendDaysMap[dayStr].orders += 1;
+        }
+        
+        // weeks map
+        if (orderDate >= sixWeeksAgo) {
+          const week = weeksRanges.find(w => orderDate >= w.start && orderDate <= w.end);
+          if (week && trendWeeksMap[week.label]) trendWeeksMap[week.label].orders += 1;
+        }
+
+        // months map
+        if (orderDate >= sixMonthsAgo) {
+          const monthStr = orderDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+          if (trendMonthsMap[monthStr]) trendMonthsMap[monthStr].orders += 1;
+        }
+      }
+
+      // Aggregate order count by status
+      const status = data.status || "unknown";
+      if (!statusCountMap[status]) {
+        statusCountMap[status] = 0;
+      }
+      statusCountMap[status] += 1;
+
+      // Process delivered orders for total revenue
+      if (status === "delivered") {
+        const orderTotal = typeof data.total === "number" ? data.total : 0;
+        totalRevenue += orderTotal;
+      }
+    });
+
+    const salesTrend = {
+      days: Object.values(trendDaysMap),
+      weeks: Object.values(trendWeeksMap),
+      months: Object.values(trendMonthsMap),
+    };
+    
+    // Format Order Count by Status for Recharts PieChart (Excluding 'delivered')
+    const ordersByStatus = Object.keys(statusCountMap)
+      .filter(status => statusCountMap[status] > 0 && status.toLowerCase() !== "delivered")
+      .map(status => ({
+        name: status.charAt(0).toUpperCase() + status.slice(1),
+        value: statusCountMap[status]
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    // 2. Total Users
+    const usersSnap = await db.collection("users").get();
+    const totalUsers = usersSnap.size;
+
+    // 3. Active Products
+    const productsSnap = await db.collection("products").where("isActive", "==", true).get();
+    const activeProducts = productsSnap.size;
+
+    // 4. Recent Orders (limit 5)
+    const recentOrdersSnap = await db.collection("orders")
+      .orderBy("createdAt", "desc")
+      .limit(5)
+      .get();
+    
+    // Format the timestamps before sending
+    const recentOrders = recentOrdersSnap.docs.map(d => {
+      const data = d.data();
+      // Ensure createdAt is sent in a standard, plannable MS format or ISO
+      let createdAtIso = null;
+      if (data.createdAt) {
+         createdAtIso = data.createdAt.toDate ? data.createdAt.toDate().toISOString() : new Date(data.createdAt._seconds * 1000).toISOString();
+      }
+      return { id: d.id, ...data, createdAtIso };
+    });
+
+    // 5. Get current admin's name
+    let adminName = null;
+    if (req.user && req.user.uid) {
+      try {
+        const adminDoc = await db.collection("users").doc(req.user.uid).get();
+        if (adminDoc.exists) {
+          adminName = adminDoc.data().displayName || null;
+        }
+      } catch (err) {
+        console.error("Error fetching admin name:", err);
+      }
+    }
+
+    res.json({
+      success: true,
+      stats: {
+        totalRevenue,
+        totalOrders,
+        deliveredOrders: statusCountMap["delivered"] || 0,
+        totalUsers,
+        activeProducts,
+        salesTrend,
+        ordersByStatus
+      },
+      recentOrders,
+      adminName
+    });
+  } catch (err) {
+    console.error("❌ Dashboard Stats Error:", err);
+    res.status(500).json({ error: "Failed to fetch dashboard stats", details: err.message });
+  }
+};
+
 // --- Products ---
 
 exports.getProducts = async (req, res) => {
