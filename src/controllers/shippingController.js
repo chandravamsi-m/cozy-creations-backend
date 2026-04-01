@@ -151,9 +151,9 @@ exports.syncStatus = async (req, res) => {
 };
 
 /**
- * Silently auto-heals a missing AWB for a user's own order.
- * Called automatically from the My Orders page — no admin access needed.
- * Only works if the order belongs to the authenticated user.
+ * Silently auto-heals a missing AWB and fetches live tracking status.
+ * Called from both My Orders page (customer) and Admin Orders page (background).
+ * Security: Only the order's own user can call this (admins use /admin/orders/:id/sync).
  */
 exports.autoSyncAwb = async (req, res) => {
   try {
@@ -168,31 +168,73 @@ exports.autoSyncAwb = async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // Already has AWB — nothing to do
-    if (orderData.shiprocket?.awbCode) {
-      return res.json({ success: true, awbCode: orderData.shiprocket.awbCode, healed: false });
-    }
-
     // No shipment created yet — nothing to fetch
     if (!orderData.shiprocket?.shipmentId) {
       return res.json({ success: false, reason: "no_shipment" });
     }
 
-    const fetchedAwb = await shippingService.getAwbByShipmentId(orderData.shiprocket.shipmentId);
+    let awbCode = orderData.shiprocket?.awbCode;
+    const updatePayload = {};
+    let healed = false;
 
-    if (fetchedAwb) {
-      await db.collection("orders").doc(id).update({
-        "shiprocket.awbCode": fetchedAwb,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      console.log(`✅ Auto-synced AWB for order ${id}: ${fetchedAwb}`);
-      return res.json({ success: true, awbCode: fetchedAwb, healed: true });
+    // ── Step 1: Heal missing AWB ──────────────────────────────────────────────
+    if (!awbCode) {
+      const fetchedAwb = await shippingService.getAwbByShipmentId(orderData.shiprocket.shipmentId);
+      if (fetchedAwb) {
+        awbCode = fetchedAwb;
+        updatePayload["shiprocket.awbCode"] = fetchedAwb;
+        healed = true;
+        console.log(`✅ Auto-healed AWB for order ${id}: ${fetchedAwb}`);
+      }
     }
 
-    return res.json({ success: false, reason: "awb_not_yet_assigned" });
+    // ── Step 2: Fetch live tracking status if AWB available ───────────────────
+    let srStatus = null;
+    let localStatus = null;
+    if (awbCode) {
+      try {
+        const tracking = await shippingService.getShipmentTracking(awbCode);
+        srStatus = tracking.tracking_data?.shipment_track?.[0]?.current_status;
+
+        if (srStatus) {
+          const statusMap = {
+            "PICKUP SCHEDULED": "confirmed",
+            "PICKUP GENERATED": "confirmed",
+            "PICKED UP": "shipped",
+            "IN TRANSIT": "shipped",
+            "OUT FOR DELIVERY": "shipped",
+            "DELIVERED": "delivered",
+            "CANCELLED": "cancelled",
+          };
+          localStatus = statusMap[srStatus.toUpperCase()] || orderData.status;
+          updatePayload["shiprocket.status"] = srStatus;
+          updatePayload["shiprocket.lastUpdate"] = new Date().toISOString();
+          if (localStatus !== orderData.status) {
+            updatePayload["status"] = localStatus;
+            updatePayload[`statusHistory.${localStatus}`] = new Date().toISOString();
+          }
+        }
+      } catch (trackErr) {
+        // Non-fatal: tracking might not be available yet
+        console.warn(`⚠️ Tracking fetch failed for order ${id}:`, trackErr.message);
+      }
+    }
+
+    if (Object.keys(updatePayload).length > 0) {
+      updatePayload["updatedAt"] = admin.firestore.FieldValue.serverTimestamp();
+      await db.collection("orders").doc(id).update(updatePayload);
+    }
+
+    return res.json({
+      success: true,
+      awbCode: awbCode || null,
+      healed,
+      srStatus: srStatus || null,
+      localStatus: localStatus || null,
+    });
   } catch (err) {
-    // Silent failure — don't break the My Orders page
-    console.error("❌ Auto-sync AWB error:", err.message);
+    // Silent failure — never break the customer page
+    console.error("❌ Auto-sync error:", err.message);
     res.json({ success: false, reason: "error" });
   }
 };
