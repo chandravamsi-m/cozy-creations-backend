@@ -74,10 +74,12 @@ exports.verifyPayment = async (req, res) => {
 
   try {
     if (!verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
-      return res.status(400).json({ error: "Payment verification failed" });
+      console.error("Signature mismatch. Check RAZORPAY_KEY_SECRET in .env!");
+      return res.status(400).json({ error: "Payment verification failed: Signature mismatch" });
     }
 
     if (!validateOrderData(orderData)) {
+      console.error("Invalid order data:", JSON.stringify(orderData, null, 2));
       return res.status(400).json({ error: "Invalid order data" });
     }
 
@@ -145,8 +147,6 @@ exports.placeCod = async (req, res) => {
       .collection("orders")
       .where("userId", "==", userId)
       .where("status", "==", "pending")
-      .orderBy("createdAt", "desc")
-      .limit(10)
       .get();
 
     const itemsJson = JSON.stringify(items || []);
@@ -187,7 +187,7 @@ exports.placeCod = async (req, res) => {
     res.json({ success: true, orderId: orderRef.id });
   } catch (err) {
     console.error("Place COD error:", err);
-    res.status(500).json({ error: "Order placement failed" });
+    res.status(500).json({ error: "Order placement failed", message: err.message, stack: err.stack });
   }
 };
 

@@ -59,6 +59,7 @@ router.post("/shiprocket", async (req, res) => {
     const updatePayload = {
       "shiprocket.status": srStatus,
       "shiprocket.lastUpdate": new Date().toISOString(),
+      "shiprocket.awbCode": awbCode, // always persist the AWB code from the webhook payload
     };
 
     if (mappedStatus) {

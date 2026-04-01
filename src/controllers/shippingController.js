@@ -90,8 +90,33 @@ exports.syncStatus = async (req, res) => {
     const orderDoc = await db.collection("orders").doc(id).get();
     if (!orderDoc.exists) return res.status(404).json({ error: "Order not found" });
 
-    const awbCode = orderDoc.data().shiprocket?.awbCode;
-    if (!awbCode) return res.status(400).json({ error: "No AWB found" });
+    let orderData = orderDoc.data();
+    let awbCode = orderData.shiprocket?.awbCode;
+
+    // ── Auto-Heal: AWB missing but we have a Shiprocket Shipment ID ──────────
+    if (!awbCode && orderData.shiprocket?.shipmentId) {
+      console.log(`🔄 AWB missing for order ${id}. Fetching from Shiprocket via shipmentId...`);
+      try {
+        const fetchedAwb = await shippingService.getAwbByShipmentId(orderData.shiprocket.shipmentId);
+
+        if (fetchedAwb) {
+          console.log(`✅ Auto-healed AWB for order ${id}: ${fetchedAwb}`);
+          await db.collection("orders").doc(id).update({
+            "shiprocket.awbCode": fetchedAwb,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          awbCode = fetchedAwb;
+        } else {
+          console.warn(`⚠️ Shiprocket did not return an AWB for order ${id} yet.`);
+          return res.status(400).json({ error: "AWB not yet assigned by Shiprocket. Please schedule pickup first." });
+        }
+      } catch (healErr) {
+        console.error("❌ AWB auto-heal failed:", healErr.message);
+        return res.status(500).json({ error: "Could not fetch AWB from Shiprocket: " + healErr.message });
+      }
+    }
+
+    if (!awbCode) return res.status(400).json({ error: "No AWB found. Please create the shipment first." });
 
     const tracking = await shippingService.getShipmentTracking(awbCode);
     const srStatus = tracking.tracking_data?.shipment_track?.[0]?.current_status;
@@ -115,12 +140,59 @@ exports.syncStatus = async (req, res) => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      return res.json({ success: true, srStatus, localStatus });
+      return res.json({ success: true, srStatus, localStatus, awbCode });
     }
 
     res.json({ success: false, message: "No status update available" });
   } catch (err) {
     console.error("❌ Sync Error:", err.message);
     res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * Silently auto-heals a missing AWB for a user's own order.
+ * Called automatically from the My Orders page — no admin access needed.
+ * Only works if the order belongs to the authenticated user.
+ */
+exports.autoSyncAwb = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const orderDoc = await db.collection("orders").doc(id).get();
+    if (!orderDoc.exists) return res.status(404).json({ error: "Order not found" });
+
+    const orderData = orderDoc.data();
+
+    // Security: ensure the order belongs to the requesting user
+    if (orderData.userId !== req.user?.uid) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    // Already has AWB — nothing to do
+    if (orderData.shiprocket?.awbCode) {
+      return res.json({ success: true, awbCode: orderData.shiprocket.awbCode, healed: false });
+    }
+
+    // No shipment created yet — nothing to fetch
+    if (!orderData.shiprocket?.shipmentId) {
+      return res.json({ success: false, reason: "no_shipment" });
+    }
+
+    const fetchedAwb = await shippingService.getAwbByShipmentId(orderData.shiprocket.shipmentId);
+
+    if (fetchedAwb) {
+      await db.collection("orders").doc(id).update({
+        "shiprocket.awbCode": fetchedAwb,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log(`✅ Auto-synced AWB for order ${id}: ${fetchedAwb}`);
+      return res.json({ success: true, awbCode: fetchedAwb, healed: true });
+    }
+
+    return res.json({ success: false, reason: "awb_not_yet_assigned" });
+  } catch (err) {
+    // Silent failure — don't break the My Orders page
+    console.error("❌ Auto-sync AWB error:", err.message);
+    res.json({ success: false, reason: "error" });
   }
 };

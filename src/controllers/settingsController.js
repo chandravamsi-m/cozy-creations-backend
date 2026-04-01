@@ -6,10 +6,13 @@ exports.getDeliverySettings = async (req, res) => {
     const doc = await db.collection("settings").doc("delivery").get();
     if (!doc.exists) {
       return res.json({
-        delivery: { isActive: false, amount: 0, freeDeliveryThreshold: 0, message: "" }
+        delivery: { isActive: false, amount: 0, freeDeliveryThreshold: 0, message: "", isShippingFeeEnabled: true }
       });
     }
-    res.json({ delivery: doc.data() });
+    const data = doc.data();
+    if (data.isShippingFeeEnabled === undefined) data.isShippingFeeEnabled = true;
+
+    res.json({ delivery: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -59,8 +62,11 @@ exports.getPublicSettings = async (req, res) => {
       db.collection("settings").doc("offerBanner").get(),
     ]);
 
+    const deliveryData = deliveryDoc.exists ? deliveryDoc.data() : { isActive: false, amount: 0, freeDeliveryThreshold: 0, isShippingFeeEnabled: true };
+    if (deliveryData.isShippingFeeEnabled === undefined) deliveryData.isShippingFeeEnabled = true;
+
     res.json({
-      delivery: deliveryDoc.exists ? deliveryDoc.data() : { isActive: false, amount: 0, freeDeliveryThreshold: 0 },
+      delivery: deliveryData,
       payment: paymentDoc.exists ? paymentDoc.data() : { isCodEnabled: true, isPlatformFeeEnabled: false, platformFee: 0 },
       offer: offerDoc.exists ? offerDoc.data() : { isActive: false }
     });

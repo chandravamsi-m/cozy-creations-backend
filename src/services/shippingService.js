@@ -2,7 +2,7 @@
 const { srFetch } = require("../utils/shiprocket");
 
 exports.checkServiceability = async (pincode, weight, isCod, dimensions = {}, amount = 0) => {
-  const pickupPincode = process.env.SHIPROCKET_PICKUP_PINCODE || "500081";
+  const pickupPincode = process.env.SHIPROCKET_PICKUP_PINCODE || "500055";
   const { l = 10, w = 10, h = 10 } = dimensions;
   
   // Construct path with dimensions and declared value for accuracy
@@ -86,7 +86,6 @@ exports.createShiprocketOrder = async (orderData, packagingConfig = {}, courierI
   const finalW = Math.max(1, totals.w + buffer);
   const finalH = Math.max(1, totals.h + buffer);
 
-  // Map our order to Shiprocket order format
   const srOrder = {
     order_id: orderData.id,
     order_date: new Date().toISOString().split('T')[0],
@@ -112,7 +111,8 @@ exports.createShiprocketOrder = async (orderData, packagingConfig = {}, courierI
       hsn: 0,
     })),
     payment_method: orderData.paymentMethod === "cod" ? "COD" : "Prepaid",
-    sub_total: orderData.total || 0,
+    sub_total: (orderData.total || 0) - ((orderData.deliveryFee || 0) + (orderData.platformFee || 0)),
+    shipping_charges: (orderData.deliveryFee || 0) + (orderData.platformFee || 0),
     length: finalL,
     breadth: finalW,
     height: finalH,
@@ -136,4 +136,17 @@ exports.generateLabel = async (shipmentId) => {
 
 exports.getShipmentTracking = async (awbCode) => {
   return await srFetch(`/courier/track/awb/${awbCode}`);
+};
+
+/**
+ * Fetches order details from Shiprocket using the shipment ID.
+ * Used to auto-heal missing AWB codes that were assigned after initial order creation
+ * (e.g., when "Ship Now" is clicked from the Shiprocket dashboard).
+ * Response structure: response[0].shipments[0].awb
+ */
+exports.getAwbByShipmentId = async (shipmentId) => {
+  const data = await srFetch(`/orders?filter_by=shipment_id&filter=${shipmentId}`);
+  // data is a direct array from Shiprocket
+  const arr = Array.isArray(data) ? data : (data?.data || []);
+  return arr?.[0]?.shipments?.[0]?.awb || null;
 };
