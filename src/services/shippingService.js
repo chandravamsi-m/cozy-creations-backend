@@ -92,8 +92,10 @@ exports.createShiprocketOrder = async (orderData, packagingConfig = {}, courierI
     pickup_location: process.env.SHIPROCKET_PICKUP_LOCATION || "HOME",
     billing_customer_name: customerName,
     billing_last_name: ".",
-    billing_address: address.street || "Address line 1",
-    billing_address_2: "",
+    billing_address: address.houseNo 
+      ? `${address.houseNo}, ${address.area}` 
+      : (address.street || "Address line 1"),
+    billing_address_2: address.landmark || "",
     billing_city: address.city || "City",
     billing_pincode: address.pincode || "500001",
     billing_state: address.state || "State",
