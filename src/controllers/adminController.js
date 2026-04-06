@@ -8,8 +8,74 @@ const {
   generateMultiPageCatalogue, 
   generateMultiPageBulkCatalogue 
 } = require("../services/catalogueService");
+const shippingService = require("../services/shippingService");
 const puppeteer = require("puppeteer");
 const { PDFDocument } = require("pdf-lib");
+
+const ALLOWED_PRODUCT_FIELDS = [
+  "name",
+  "category",
+  "price",
+  "weightGrams",
+  "waxType",
+  "burnTimeHours",
+  "dimensions",
+  "dimensionUnit",
+  "quantityPack",
+  "customizableFragrance",
+  "customizableColor",
+  "altText",
+  "imageUrl",
+  "thumbnailUrl",
+  "isActive",
+  "bulkPricingTiers",
+];
+
+function normalizeBulkPricingTiers(product) {
+  const tiers = Array.isArray(product.bulkPricingTiers)
+    ? product.bulkPricingTiers
+    : (Array.isArray(product.bulkPricing) ? product.bulkPricing : []);
+
+  return tiers
+    .map((tier) => ({
+      minQty: String(tier.minQty || "").trim(),
+      pricePerPc: Number(tier.pricePerPc),
+    }))
+    .filter((tier) => tier.minQty && Number.isFinite(tier.pricePerPc) && tier.pricePerPc > 0);
+}
+
+
+async function normalizeProductPayload(inputProduct, existingProduct = null) {
+  if (!inputProduct || typeof inputProduct !== "object") {
+    throw new Error("Invalid product payload");
+  }
+
+  const payload = {};
+  for (const field of ALLOWED_PRODUCT_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(inputProduct, field)) {
+      payload[field] = inputProduct[field];
+    }
+  }
+
+  if (inputProduct.imageBuffer && typeof inputProduct.imageBuffer === "string" && inputProduct.imageBuffer.startsWith("data:image")) {
+    const uploadResult = await cloudinary.uploader.upload(inputProduct.imageBuffer, {
+      folder: "cozy-creations/products",
+    });
+    payload.imageUrl = uploadResult.secure_url;
+    payload.thumbnailUrl = uploadResult.secure_url;
+  }
+
+  payload.price = Number(payload.price) || 0;
+  payload.weightGrams = Number(payload.weightGrams) || 0;
+  payload.quantityPack = Number(payload.quantityPack) || 1;
+  payload.bulkPricingTiers = normalizeBulkPricingTiers(inputProduct);
+
+  if (!payload.altText && (payload.name || existingProduct?.name)) {
+    payload.altText = payload.name || existingProduct?.name;
+  }
+
+  return payload;
+}
 
 // --- Dashboard Stats ---
 
@@ -199,10 +265,11 @@ exports.createProduct = async (req, res) => {
     const { product } = req.body;
     if (!product?.name) return res.status(400).json({ error: "Invalid product data" });
 
+    const normalizedProduct = await normalizeProductPayload(product);
+
     const docRef = await db.collection("products").add({
-      ...product,
-      isActive: product.isActive !== false,
-      inventory: typeof product.inventory === "number" ? product.inventory : 100,
+      ...normalizedProduct,
+      isActive: normalizedProduct.isActive !== false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -215,8 +282,14 @@ exports.createProduct = async (req, res) => {
 
 exports.updateProduct = async (req, res) => {
   try {
-    await db.collection("products").doc(req.params.id).update({
-      ...req.body.product,
+    const productRef = db.collection("products").doc(req.params.id);
+    const currentSnap = await productRef.get();
+    if (!currentSnap.exists) return res.status(404).json({ error: "Product not found" });
+
+    const normalizedProduct = await normalizeProductPayload(req.body.product, currentSnap.data());
+
+    await productRef.update({
+      ...normalizedProduct,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     res.json({ success: true });
@@ -316,12 +389,13 @@ exports.updateOffer = async (req, res) => {
 
 exports.updateDeliverySettings = async (req, res) => {
   try {
-    const { isActive, amount, freeDeliveryThreshold, message } = req.body;
+    const { isActive, amount, freeDeliveryThreshold, message, isShippingFeeEnabled } = req.body;
     const data = {
       isActive: !!isActive,
-      amount: amount || 0,
-      freeDeliveryThreshold: freeDeliveryThreshold || 0,
+      amount: Number(amount) || 0,
+      freeDeliveryThreshold: Number(freeDeliveryThreshold) || 0,
       message: message || "",
+      isShippingFeeEnabled: isShippingFeeEnabled !== false,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
     await db.collection("settings").doc("delivery").set(data, { merge: true });
@@ -333,9 +407,11 @@ exports.updateDeliverySettings = async (req, res) => {
 
 exports.updatePaymentSettings = async (req, res) => {
   try {
-    const { isCodEnabled } = req.body;
+    const { isCodEnabled, isPlatformFeeEnabled, platformFee } = req.body;
     const data = {
       isCodEnabled: isCodEnabled !== undefined ? isCodEnabled : true,
+      isPlatformFeeEnabled: isPlatformFeeEnabled !== undefined ? isPlatformFeeEnabled : false,
+      platformFee: Number(platformFee) || 0,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
     await db.collection("settings").doc("payment").set(data, { merge: true });
@@ -358,14 +434,101 @@ exports.getOrders = async (req, res) => {
 
 exports.updateOrder = async (req, res) => {
   try {
+    const nextStatus = String(req.body.status || "").trim().toLowerCase();
+    const allowedStatuses = new Set(["pending", "confirmed", "packed", "shipped", "delivered", "cancelled"]);
+    if (!allowedStatuses.has(nextStatus)) {
+      return res.status(400).json({ error: "Invalid order status" });
+    }
+
+    const orderRef = db.collection("orders").doc(req.params.id);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) return res.status(404).json({ error: "Order not found" });
+
+    const currentStatus = String(orderSnap.data()?.status || "").toLowerCase();
+    if (currentStatus === "delivered" && nextStatus === "cancelled") {
+      return res.status(409).json({ error: "Delivered orders cannot be cancelled" });
+    }
+
     const updateData = {
-      status: req.body.status,
-      [`statusHistory.${req.body.status.toLowerCase()}`]: admin.firestore.FieldValue.serverTimestamp(),
+      status: nextStatus,
+      [`statusHistory.${nextStatus}`]: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (req.body.expectedDeliveryDate) updateData.expectedDeliveryDate = req.body.expectedDeliveryDate;
-    await db.collection("orders").doc(req.params.id).update(updateData);
+    await orderRef.update(updateData);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.cancelOrder = async (req, res) => {
+  try {
+    const orderRef = db.collection("orders").doc(req.params.id);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) return res.status(404).json({ error: "Order not found" });
+
+    const order = orderSnap.data() || {};
+    const currentStatus = String(order.status || "").toLowerCase();
+
+    if (currentStatus === "delivered") {
+      return res.status(409).json({ error: "Delivered orders cannot be cancelled" });
+    }
+
+    if (currentStatus === "cancelled") {
+      return res.json({
+        success: true,
+        cancelledLocally: true,
+        cancelledInShiprocket: String(order.shiprocket?.status || "").toUpperCase().includes("CANCEL"),
+        alreadyCancelled: true,
+      });
+    }
+
+    let shiprocketResult = {
+      attempted: false,
+      cancelled: false,
+      reason: "no_shiprocket_identity",
+    };
+
+    if (order.shiprocket?.shipmentId || order.shiprocket?.orderId || order.shiprocket?.awbCode) {
+      shiprocketResult = await shippingService.cancelShiprocketOrder({
+        shiprocketOrderId: order.shiprocket?.orderId,
+        shipmentId: order.shiprocket?.shipmentId,
+        awbCode: order.shiprocket?.awbCode,
+      });
+    }
+
+    const updatePayload = {
+      status: "cancelled",
+      "statusHistory.cancelled": admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      "shiprocket.lastUpdate": new Date().toISOString(),
+    };
+
+    if (shiprocketResult.attempted) {
+      updatePayload["shiprocket.cancelAttemptedAt"] = new Date().toISOString();
+      updatePayload["shiprocket.cancelledInShiprocket"] = !!shiprocketResult.cancelled;
+      if (shiprocketResult.cancelled) {
+        updatePayload["shiprocket.status"] = "CANCELLED";
+      }
+      if (shiprocketResult.reason) {
+        updatePayload["shiprocket.cancelReason"] = shiprocketResult.reason;
+      }
+      if (shiprocketResult.errors?.length) {
+        updatePayload["shiprocket.cancelErrors"] = shiprocketResult.errors;
+      }
+    }
+
+    await orderRef.update(updatePayload);
+
+    res.json({
+      success: true,
+      cancelledLocally: true,
+      cancelledInShiprocket: !!shiprocketResult.cancelled,
+      shiprocketAttempted: !!shiprocketResult.attempted,
+      shiprocketReason: shiprocketResult.reason || null,
+      shiprocketErrors: shiprocketResult.errors || [],
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -448,9 +611,17 @@ exports.generateBulkCatalogue = async (req, res) => {
 
 exports.updateDeliverySettings = async (req, res) => {
   try {
-    const updates = { ...req.body, updatedAt: new Date().toISOString() };
-    await db.collection("settings").doc("delivery").set(updates, { merge: true });
-    res.json({ success: true });
+    const { isActive, amount, freeDeliveryThreshold, message, isShippingFeeEnabled } = req.body;
+    const data = {
+      isActive: !!isActive,
+      amount: Number(amount) || 0,
+      freeDeliveryThreshold: Number(freeDeliveryThreshold) || 0,
+      message: message || "",
+      isShippingFeeEnabled: isShippingFeeEnabled !== false,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    await db.collection("settings").doc("delivery").set(data, { merge: true });
+    res.json({ success: true, delivery: data });
   } catch (err) {
     console.error("❌ Update Delivery Settings Error:", err.message);
     res.status(500).json({ error: err.message });

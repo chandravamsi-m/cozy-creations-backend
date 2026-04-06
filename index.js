@@ -21,7 +21,11 @@ const app = express();
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    req.rawBody = buf ? buf.toString("utf8") : "";
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // Static files (if any)

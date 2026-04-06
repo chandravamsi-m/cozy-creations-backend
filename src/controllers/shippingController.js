@@ -1,6 +1,152 @@
 // src/controllers/shippingController.js
 const shippingService = require("../services/shippingService");
 const { db, admin } = require("../config/firebase");
+const { mapShiprocketStatus } = require("../utils/shiprocketStatus");
+
+async function reconcileAwbOwnership(orderId, shipmentId, awbCode) {
+  if (!awbCode) return;
+
+  const conflictsSnap = await db
+    .collection("orders")
+    .where("shiprocket.awbCode", "==", awbCode)
+    .get();
+
+  const updates = conflictsSnap.docs
+    .filter((doc) => doc.id !== orderId)
+    .filter((doc) => String(doc.data()?.shiprocket?.shipmentId || "") !== String(shipmentId))
+    .map((doc) =>
+      doc.ref.update({
+        "shiprocket.awbCode": admin.firestore.FieldValue.delete(),
+        "shiprocket.identityConflict": {
+          resolvedAt: new Date().toISOString(),
+          conflictingAwbCode: awbCode,
+          conflictingShipmentId: shipmentId,
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      })
+    );
+
+  await Promise.all(updates);
+}
+
+async function hydrateShipmentIdentity(orderId, orderData) {
+  const shipmentId = orderData.shiprocket?.shipmentId;
+  const shiprocketOrderId = orderData.shiprocket?.orderId || null;
+
+  if (!shipmentId && !shiprocketOrderId) {
+    return {
+      shipmentId: null,
+      awbCode: orderData.shiprocket?.awbCode || null,
+      shiprocketStatus: orderData.shiprocket?.status || null,
+      courierName: orderData.shiprocket?.courierName || orderData.courierName || null,
+      snapshotFound: false,
+      shiprocketOrderId: null,
+    };
+  }
+
+  const snapshot = shipmentId
+    ? await shippingService.getShipmentSnapshotByShipmentId(shipmentId)
+    : await shippingService.getShipmentSnapshotByOrderId(shiprocketOrderId);
+  const fallbackSnapshot = !snapshot && shiprocketOrderId
+    ? await shippingService.getShipmentSnapshotByOrderId(shiprocketOrderId)
+    : null;
+  const localOrderSnapshot = !snapshot && !fallbackSnapshot
+    ? await shippingService.getShipmentSnapshotByOrderId(orderId)
+    : null;
+  const resolvedSnapshot = snapshot || fallbackSnapshot || localOrderSnapshot;
+
+  const awbCode = resolvedSnapshot?.awbCode || orderData.shiprocket?.awbCode || null;
+  const shiprocketStatus = resolvedSnapshot?.status || orderData.shiprocket?.status || null;
+  const courierName = resolvedSnapshot?.courierName || orderData.shiprocket?.courierName || orderData.courierName || null;
+  const resolvedShipmentId = resolvedSnapshot?.shipmentId || shipmentId || null;
+  const resolvedOrderId = resolvedSnapshot?.orderId || shiprocketOrderId || null;
+
+  if (awbCode && resolvedShipmentId) {
+    await reconcileAwbOwnership(orderId, resolvedShipmentId, awbCode);
+  }
+
+  return {
+    shipmentId: resolvedShipmentId,
+    awbCode,
+    shiprocketStatus,
+    courierName,
+    snapshotFound: !!resolvedSnapshot,
+    shiprocketOrderId: resolvedOrderId,
+  };
+}
+
+async function clearStaleTrackingIfNeeded(orderId, orderData, identity) {
+  if (!identity.shipmentId || identity.awbCode) {
+    return {
+      cleaned: false,
+      localStatus: orderData.status,
+    };
+  }
+
+  const updatePayload = {
+    "shiprocket.awbCode": admin.firestore.FieldValue.delete(),
+    "shiprocket.status": admin.firestore.FieldValue.delete(),
+    "shiprocket.lastUpdate": admin.firestore.FieldValue.delete(),
+    "shiprocket.lastSyncAttempt": new Date().toISOString(),
+    "shiprocket.lastTrackingReset": new Date().toISOString(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  let localStatus = orderData.status;
+  if (["shipped", "delivered", "cancelled"].includes(String(orderData.status || "").toLowerCase())) {
+    localStatus = "packed";
+    updatePayload.status = localStatus;
+    updatePayload["statusHistory.packed"] = admin.firestore.FieldValue.serverTimestamp();
+  }
+
+  await db.collection("orders").doc(orderId).update(updatePayload);
+
+  return {
+    cleaned: true,
+    localStatus,
+  };
+}
+
+async function applySnapshotStatus(orderId, orderData, identity) {
+  const snapshotStatus = identity.shiprocketStatus || null;
+  const localStatus = mapShiprocketStatus(snapshotStatus, null);
+  if (!snapshotStatus || !localStatus) {
+    return null;
+  }
+
+  const updatePayload = {
+    "shiprocket.status": snapshotStatus,
+    "shiprocket.shipmentId": identity.shipmentId || orderData.shiprocket?.shipmentId || null,
+    "shiprocket.orderId": identity.shiprocketOrderId || orderData.shiprocket?.orderId || null,
+    "shiprocket.lastUpdate": new Date().toISOString(),
+    "shiprocket.lastSyncAttempt": new Date().toISOString(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (identity.awbCode) {
+    updatePayload["shiprocket.awbCode"] = identity.awbCode;
+  }
+  if (identity.courierName) {
+    updatePayload["shiprocket.courierName"] = identity.courierName;
+  }
+  if (localStatus !== orderData.status) {
+    updatePayload.status = localStatus;
+    updatePayload[`statusHistory.${localStatus}`] = admin.firestore.FieldValue.serverTimestamp();
+  }
+
+  await db.collection("orders").doc(orderId).update(updatePayload);
+  return {
+    success: true,
+    srStatus: snapshotStatus,
+    localStatus,
+    awbCode: identity.awbCode || null,
+    shiprocketOrderId: identity.shiprocketOrderId || orderData.shiprocket?.orderId || null,
+    shipmentId: identity.shipmentId || orderData.shiprocket?.shipmentId || null,
+    courierName: identity.courierName || orderData.shiprocket?.courierName || orderData.courierName || null,
+    lastSyncAttempt: updatePayload["shiprocket.lastSyncAttempt"],
+    source: "shipment_snapshot",
+  };
+}
 
 exports.checkServiceability = async (req, res) => {
   try {
@@ -36,6 +182,9 @@ exports.createShipment = async (req, res) => {
     if (!orderDoc.exists) return res.status(404).json({ error: "Order not found" });
 
     const orderData = { id: orderDoc.id, ...orderDoc.data() };
+    if (orderData.shiprocket?.shipmentId) {
+      return res.json({ success: true, existing: true, shiprocket: orderData.shiprocket });
+    }
     
     const pkgDoc = await db.collection("settings").doc("packaging").get();
     const packagingConfig = pkgDoc.exists ? (pkgDoc.data().categoryPackaging || {}) : {};
@@ -50,8 +199,13 @@ exports.createShipment = async (req, res) => {
       shipmentId: srResult.shipment_id,
       status: "NEW",
       awbCode: srResult.awb_code || null,
+      courierName: orderData.courierName || null,
       lastUpdate: new Date().toISOString(),
     };
+
+    if (shiprocketInfo.awbCode) {
+      await reconcileAwbOwnership(orderId, shiprocketInfo.shipmentId, shiprocketInfo.awbCode);
+    }
 
     await db.collection("orders").doc(orderId).update({
       shiprocket: shiprocketInfo,
@@ -91,59 +245,76 @@ exports.syncStatus = async (req, res) => {
     if (!orderDoc.exists) return res.status(404).json({ error: "Order not found" });
 
     let orderData = orderDoc.data();
-    let awbCode = orderData.shiprocket?.awbCode;
-
-    // ── Auto-Heal: AWB missing but we have a Shiprocket Shipment ID ──────────
-    if (!awbCode && orderData.shiprocket?.shipmentId) {
-      console.log(`🔄 AWB missing for order ${id}. Fetching from Shiprocket via shipmentId...`);
-      try {
-        const fetchedAwb = await shippingService.getAwbByShipmentId(orderData.shiprocket.shipmentId);
-
-        if (fetchedAwb) {
-          console.log(`✅ Auto-healed AWB for order ${id}: ${fetchedAwb}`);
-          await db.collection("orders").doc(id).update({
-            "shiprocket.awbCode": fetchedAwb,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-          awbCode = fetchedAwb;
-        } else {
-          console.warn(`⚠️ Shiprocket did not return an AWB for order ${id} yet.`);
-          return res.status(400).json({ error: "AWB not yet assigned by Shiprocket. Please schedule pickup first." });
-        }
-      } catch (healErr) {
-        console.error("❌ AWB auto-heal failed:", healErr.message);
-        return res.status(500).json({ error: "Could not fetch AWB from Shiprocket: " + healErr.message });
-      }
+    const identity = await hydrateShipmentIdentity(id, orderData);
+    let awbCode = identity.awbCode;
+    const snapshotApplied = await applySnapshotStatus(id, orderData, identity);
+    if (snapshotApplied && ["cancelled", "delivered"].includes(snapshotApplied.localStatus)) {
+      return res.json(snapshotApplied);
     }
 
-    if (!awbCode) return res.status(400).json({ error: "No AWB found. Please create the shipment first." });
+    if (!awbCode) {
+      const cleaned = await clearStaleTrackingIfNeeded(id, orderData, identity);
+      return res.status(409).json({
+        error: identity.shipmentId || identity.shiprocketOrderId
+          ? "AWB not assigned yet. Complete Ship Now in Shiprocket to generate the shipment and tracking details."
+          : "No Shiprocket order found. Please create the shipment first.",
+        code: "NO_AWB_FOUND",
+        cleaned: cleaned.cleaned,
+        localStatus: cleaned.localStatus,
+        shiprocketOrderId: identity.shiprocketOrderId || orderData.shiprocket?.orderId || null,
+        shipmentId: identity.shipmentId || orderData.shiprocket?.shipmentId || null,
+        courierName: identity.courierName || orderData.shiprocket?.courierName || orderData.courierName || null,
+        lastSyncAttempt: new Date().toISOString(),
+      });
+    }
 
     const tracking = await shippingService.getShipmentTracking(awbCode);
     const srStatus = tracking.tracking_data?.shipment_track?.[0]?.current_status;
 
     if (srStatus) {
-      // Map Shiprocket status to local
-      const statusMap = {
-        "PICKUP SCHEDULED": "confirmed",
-        "PICKUP GENERATED": "confirmed",
-        "PICKED UP": "shipped",
-        "IN TRANSIT": "shipped",
-        "OUT FOR DELIVERY": "shipped",
-        "DELIVERED": "delivered",
-        "CANCELLED": "cancelled",
-      };
-      const localStatus = statusMap[srStatus.toUpperCase()] || orderDoc.data().status;
+      const localStatus = mapShiprocketStatus(srStatus, orderDoc.data().status);
 
-      await db.collection("orders").doc(id).update({
+      const updatePayload = {
         "shiprocket.status": srStatus,
-        status: localStatus,
+        "shiprocket.awbCode": awbCode,
+        "shiprocket.shipmentId": identity.shipmentId || orderData.shiprocket?.shipmentId || null,
+        "shiprocket.courierName": identity.courierName || null,
+        "shiprocket.lastUpdate": new Date().toISOString(),
+        "shiprocket.lastSyncAttempt": new Date().toISOString(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      };
+      if (localStatus !== orderDoc.data().status) {
+        updatePayload.status = localStatus;
+        updatePayload[`statusHistory.${localStatus}`] = admin.firestore.FieldValue.serverTimestamp();
+      }
 
-      return res.json({ success: true, srStatus, localStatus, awbCode });
+      await db.collection("orders").doc(id).update(updatePayload);
+
+      return res.json({
+        success: true,
+        srStatus,
+        localStatus,
+        awbCode,
+        shiprocketOrderId: identity.shiprocketOrderId || orderData.shiprocket?.orderId || null,
+        shipmentId: identity.shipmentId || orderData.shiprocket?.shipmentId || null,
+        courierName: identity.courierName || orderData.shiprocket?.courierName || orderData.courierName || null,
+        lastSyncAttempt: updatePayload["shiprocket.lastSyncAttempt"],
+      });
     }
 
-    res.json({ success: false, message: "No status update available" });
+    await db.collection("orders").doc(id).update({
+      "shiprocket.lastSyncAttempt": new Date().toISOString(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    res.json({
+      success: false,
+      message: "No status update available",
+      shiprocketOrderId: identity.shiprocketOrderId || orderData.shiprocket?.orderId || null,
+      shipmentId: identity.shipmentId || orderData.shiprocket?.shipmentId || null,
+      courierName: identity.courierName || orderData.shiprocket?.courierName || orderData.courierName || null,
+      lastSyncAttempt: new Date().toISOString(),
+    });
   } catch (err) {
     console.error("❌ Sync Error:", err.message);
     res.status(500).json({ error: err.message });
@@ -173,19 +344,20 @@ exports.autoSyncAwb = async (req, res) => {
       return res.json({ success: false, reason: "no_shipment" });
     }
 
-    let awbCode = orderData.shiprocket?.awbCode;
+    const identity = await hydrateShipmentIdentity(id, orderData);
+    let awbCode = identity.awbCode;
+    const snapshotApplied = await applySnapshotStatus(id, orderData, identity);
+    if (snapshotApplied && ["cancelled", "delivered"].includes(snapshotApplied.localStatus)) {
+      return res.json(snapshotApplied);
+    }
     const updatePayload = {};
-    let healed = false;
-
-    // ── Step 1: Heal missing AWB ──────────────────────────────────────────────
-    if (!awbCode) {
-      const fetchedAwb = await shippingService.getAwbByShipmentId(orderData.shiprocket.shipmentId);
-      if (fetchedAwb) {
-        awbCode = fetchedAwb;
-        updatePayload["shiprocket.awbCode"] = fetchedAwb;
-        healed = true;
-        console.log(`✅ Auto-healed AWB for order ${id}: ${fetchedAwb}`);
-      }
+    const healed = awbCode && awbCode !== orderData.shiprocket?.awbCode;
+    updatePayload["shiprocket.lastSyncAttempt"] = new Date().toISOString();
+    if (awbCode) {
+      updatePayload["shiprocket.awbCode"] = awbCode;
+    }
+    if (identity.courierName) {
+      updatePayload["shiprocket.courierName"] = identity.courierName;
     }
 
     // ── Step 2: Fetch live tracking status if AWB available ───────────────────
@@ -197,16 +369,7 @@ exports.autoSyncAwb = async (req, res) => {
         srStatus = tracking.tracking_data?.shipment_track?.[0]?.current_status;
 
         if (srStatus) {
-          const statusMap = {
-            "PICKUP SCHEDULED": "confirmed",
-            "PICKUP GENERATED": "confirmed",
-            "PICKED UP": "shipped",
-            "IN TRANSIT": "shipped",
-            "OUT FOR DELIVERY": "shipped",
-            "DELIVERED": "delivered",
-            "CANCELLED": "cancelled",
-          };
-          localStatus = statusMap[srStatus.toUpperCase()] || orderData.status;
+          localStatus = mapShiprocketStatus(srStatus, orderData.status);
           updatePayload["shiprocket.status"] = srStatus;
           updatePayload["shiprocket.lastUpdate"] = new Date().toISOString();
           if (localStatus !== orderData.status) {
@@ -220,6 +383,25 @@ exports.autoSyncAwb = async (req, res) => {
       }
     }
 
+    if (!awbCode) {
+      const cleaned = await clearStaleTrackingIfNeeded(id, orderData, identity);
+      return res.json({
+        success: false,
+        reason: "no_awb",
+        cleaned: cleaned.cleaned,
+        localStatus: cleaned.localStatus,
+        awbCode: null,
+        srStatus: null,
+        shiprocketOrderId: identity.shiprocketOrderId || orderData.shiprocket?.orderId || null,
+        shipmentId: identity.shipmentId || orderData.shiprocket?.shipmentId || null,
+        courierName: identity.courierName || orderData.shiprocket?.courierName || orderData.courierName || null,
+        lastSyncAttempt: updatePayload["shiprocket.lastSyncAttempt"],
+        message: identity.shipmentId || identity.shiprocketOrderId
+          ? "AWB not assigned yet. Complete Ship Now in Shiprocket to generate the shipment and tracking details."
+          : "No Shiprocket order found yet.",
+      });
+    }
+
     if (Object.keys(updatePayload).length > 0) {
       updatePayload["updatedAt"] = admin.firestore.FieldValue.serverTimestamp();
       await db.collection("orders").doc(id).update(updatePayload);
@@ -231,6 +413,10 @@ exports.autoSyncAwb = async (req, res) => {
       healed,
       srStatus: srStatus || null,
       localStatus: localStatus || null,
+      shiprocketOrderId: identity.shiprocketOrderId || orderData.shiprocket?.orderId || null,
+      shipmentId: identity.shipmentId || orderData.shiprocket?.shipmentId || null,
+      courierName: identity.courierName || orderData.shiprocket?.courierName || orderData.courierName || null,
+      lastSyncAttempt: updatePayload["shiprocket.lastSyncAttempt"],
     });
   } catch (err) {
     // Silent failure — never break the customer page

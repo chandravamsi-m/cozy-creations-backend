@@ -140,6 +140,191 @@ exports.getShipmentTracking = async (awbCode) => {
   return await srFetch(`/courier/track/awb/${awbCode}`);
 };
 
+exports.cancelShiprocketOrder = async ({ shiprocketOrderId, shipmentId, awbCode }) => {
+  const attempts = [];
+
+  if (awbCode) {
+    attempts.push({
+      label: "awb",
+      path: "/orders/cancel/shipment/awbs",
+      body: { awbs: [String(awbCode)] },
+    });
+  }
+
+  if (shiprocketOrderId) {
+    const normalizedOrderId = Number.isFinite(Number(shiprocketOrderId))
+      ? Number(shiprocketOrderId)
+      : shiprocketOrderId;
+    attempts.push({
+      label: "order",
+      path: "/orders/cancel",
+      body: { ids: [normalizedOrderId] },
+    });
+  }
+
+  if (shipmentId) {
+    const normalizedShipmentId = Number.isFinite(Number(shipmentId))
+      ? Number(shipmentId)
+      : shipmentId;
+    attempts.push({
+      label: "shipment",
+      path: "/orders/cancel/shipment/ids",
+      body: { ids: [normalizedShipmentId] },
+    });
+  }
+
+  if (attempts.length === 0) {
+    return {
+      attempted: false,
+      cancelled: false,
+      reason: "no_shiprocket_identity",
+    };
+  }
+
+  const errors = [];
+  for (const attempt of attempts) {
+    try {
+      const response = await srFetch(attempt.path, {
+        method: "POST",
+        body: JSON.stringify(attempt.body),
+      });
+      return {
+        attempted: true,
+        cancelled: true,
+        via: attempt.label,
+        response,
+      };
+    } catch (error) {
+      errors.push(`${attempt.label}: ${error.message}`);
+    }
+  }
+
+  return {
+    attempted: true,
+    cancelled: false,
+    reason: "shiprocket_cancel_failed",
+    errors,
+  };
+};
+
+function findShipmentEntryByShipmentId(payload, shipmentId) {
+  const target = String(shipmentId);
+  const candidates = Array.isArray(payload) ? payload : (payload?.data || payload?.orders || payload?.response || []);
+
+  for (const entry of candidates) {
+    if (!entry || typeof entry !== "object") continue;
+
+    if (String(entry.shipment_id || entry.shipmentId || "") === target) {
+      return entry;
+    }
+
+    if (Array.isArray(entry.shipments)) {
+      const shipment = entry.shipments.find((item) => String(item?.shipment_id || item?.shipmentId || item?.id || "") === target);
+      if (shipment) {
+        return { ...entry, shipment };
+      }
+    }
+  }
+
+  return null;
+}
+
+function findShipmentEntryByOrderId(payload, orderId) {
+  const target = String(orderId);
+  const candidates = Array.isArray(payload) ? payload : (payload?.data || payload?.orders || payload?.response || []);
+
+  for (const entry of candidates) {
+    if (!entry || typeof entry !== "object") continue;
+
+    if (
+      String(entry.id || entry.order_id || entry.orderId || entry.channel_order_id || entry.reference_no || "") === target
+    ) {
+      return entry;
+    }
+
+    if (Array.isArray(entry.shipments)) {
+      const shipment = entry.shipments.find((item) =>
+        String(item?.order_id || item?.orderId || item?.channel_order_id || item?.reference_no || "") === target
+      );
+      if (shipment) {
+        return { ...entry, shipment };
+      }
+    }
+  }
+
+  return null;
+}
+
+function resolveShiprocketSnapshotStatus(entry, shipment) {
+  return (
+    (typeof entry?.current_status === "string" ? entry.current_status : null) ||
+    (typeof entry?.status === "string" ? entry.status : null) ||
+    (typeof shipment?.current_status === "string" ? shipment.current_status : null) ||
+    (typeof shipment?.status === "string" ? shipment.status : null) ||
+    entry?.current_status ||
+    entry?.status ||
+    shipment?.current_status ||
+    shipment?.status ||
+    null
+  );
+}
+
+exports.getShipmentSnapshotByShipmentId = async (shipmentId) => {
+  const data = await srFetch(`/orders?filter_by=shipment_id&filter=${shipmentId}`);
+  const entry = findShipmentEntryByShipmentId(data, shipmentId);
+  if (!entry) return null;
+
+  const shipment = entry.shipment || (Array.isArray(entry.shipments) ? entry.shipments[0] : null) || entry;
+  const resolvedStatus = resolveShiprocketSnapshotStatus(entry, shipment);
+  return {
+    shipmentId: String(
+      shipment?.shipment_id ||
+      shipment?.shipmentId ||
+      entry?.shipment_id ||
+      entry?.shipmentId ||
+      shipmentId
+    ),
+    awbCode: shipment?.awb || shipment?.awb_code || entry?.awb || entry?.awb_code || null,
+    status: resolvedStatus,
+    courierName:
+      shipment?.courier_name ||
+      shipment?.courier ||
+      entry?.courier_name ||
+      entry?.courier ||
+      null,
+    orderId: entry?.id || entry?.order_id || null,
+    raw: entry,
+  };
+};
+
+exports.getShipmentSnapshotByOrderId = async (orderId) => {
+  const data = await srFetch(`/orders?filter_by=order_id&filter=${orderId}`);
+  const entry = findShipmentEntryByOrderId(data, orderId);
+  if (!entry) return null;
+
+  const shipment = entry.shipment || (Array.isArray(entry.shipments) ? entry.shipments[0] : null) || entry;
+  const resolvedStatus = resolveShiprocketSnapshotStatus(entry, shipment);
+  return {
+    shipmentId: String(
+      shipment?.shipment_id ||
+      shipment?.shipmentId ||
+      entry?.shipment_id ||
+      entry?.shipmentId ||
+      ""
+    ) || null,
+    awbCode: shipment?.awb || shipment?.awb_code || entry?.awb || entry?.awb_code || null,
+    status: resolvedStatus,
+    courierName:
+      shipment?.courier_name ||
+      shipment?.courier ||
+      entry?.courier_name ||
+      entry?.courier ||
+      null,
+    orderId: entry?.id || entry?.order_id || orderId || null,
+    raw: entry,
+  };
+};
+
 /**
  * Fetches order details from Shiprocket using the shipment ID.
  * Used to auto-heal missing AWB codes that were assigned after initial order creation
@@ -147,8 +332,9 @@ exports.getShipmentTracking = async (awbCode) => {
  * Response structure: response[0].shipments[0].awb
  */
 exports.getAwbByShipmentId = async (shipmentId) => {
-  const data = await srFetch(`/orders?filter_by=shipment_id&filter=${shipmentId}`);
-  // data is a direct array from Shiprocket
-  const arr = Array.isArray(data) ? data : (data?.data || []);
-  return arr?.[0]?.shipments?.[0]?.awb || null;
+  const snapshot = await exports.getShipmentSnapshotByShipmentId(shipmentId);
+  return snapshot?.awbCode || null;
 };
+
+exports.getEffectiveShipmentDimensions = getEffectiveShipmentDimensions;
+exports.resolveShiprocketSnapshotStatus = resolveShiprocketSnapshotStatus;

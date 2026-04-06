@@ -23,24 +23,33 @@ function verifySignature(orderId, paymentId, signature) {
   return hmac.digest("hex") === signature;
 }
 
-/**
- * Updates inventory after a successful payment or order placement.
- */
-async function updateInventory(items) {
-  for (const item of items) {
-    const pRef = db.collection("products").doc(item.productId);
-    const pSnap = await pRef.get();
-    if (pSnap.exists && typeof pSnap.data().inventory === "number") {
-      await pRef.update({
-        inventory: Math.max(0, pSnap.data().inventory - item.quantity),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    }
-  }
+async function createOrderRecord({ orderData, paymentId = null, paymentOrderId = null }) {
+  const orderRef = db.collection("orders").doc();
+
+  await db.runTransaction(async (transaction) => {
+    const productRefs = orderData.items.map((item) => db.collection("products").doc(item.productId));
+    const productSnaps = await Promise.all(productRefs.map((ref) => transaction.get(ref)));
+
+    productSnaps.forEach((productSnap, index) => {
+      if (!productSnap.exists) {
+        throw new Error(`Product not found: ${orderData.items[index].productId}`);
+      }
+    });
+
+    transaction.set(orderRef, {
+      ...orderData,
+      paymentId,
+      paymentOrderId,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+
+  return orderRef.id;
 }
 
 module.exports = {
   createRazorpayOrder,
   verifySignature,
-  updateInventory,
+  createOrderRecord,
 };

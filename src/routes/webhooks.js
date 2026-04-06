@@ -1,66 +1,115 @@
 // src/routes/webhooks.js
 const express = require("express");
+const crypto = require("crypto");
 const router = express.Router();
 const { db } = require("../config/firebase");
+const { mapShiprocketStatus } = require("../utils/shiprocketStatus");
 
-/**
- * Shiprocket pushes delivery status updates here.
- * We keep this endpoint idempotent and defensive.
- */
+function getWebhookSignature(req) {
+  return req.get("x-shiprocket-signature") || req.get("x-webhook-signature") || req.get("x-signature") || "";
+}
+
+function isValidWebhookSignature(req) {
+  const secret = process.env.SHIPROCKET_WEBHOOK_SECRET;
+  if (!secret || !req.rawBody) return false;
+
+  const digest = crypto.createHmac("sha256", secret).update(req.rawBody).digest("hex");
+  const base64Digest = crypto.createHmac("sha256", secret).update(req.rawBody).digest("base64");
+  const provided = getWebhookSignature(req).trim();
+  return provided === digest || provided === base64Digest;
+}
+
 router.post("/shiprocket", async (req, res) => {
   try {
-    const payload = req.body || {};
-    console.log("📦 Shiprocket Webhook:", JSON.stringify(payload, null, 2));
-
-    const awbCode = payload.awb || payload.awb_code;
-    const srStatus = payload.current_status || payload.status;
-
-    // Basic shape validation
-    if (!awbCode || typeof awbCode !== "string" || !srStatus || typeof srStatus !== "string") {
-      return res.status(200).json({ received: true, skipped: true, reason: "missing_awb_or_status" });
+    if (!process.env.SHIPROCKET_WEBHOOK_SECRET) {
+      return res.status(503).json({ error: "Webhook secret is not configured", code: "WEBHOOK_NOT_CONFIGURED" });
+    }
+    if (!isValidWebhookSignature(req)) {
+      return res.status(401).json({ error: "Invalid webhook signature", code: "INVALID_WEBHOOK_SIGNATURE" });
     }
 
-    const statusMap = {
-      "Pickup Scheduled": "confirmed",
-      "Pickup Generated": "confirmed",
-      "Picked Up": "shipped",
-      "In Transit": "shipped",
-      "Out For Delivery": "shipped",
-      "Delivered": "delivered",
-      "Undelivered": "shipped",
-      "Cancelled": "cancelled",
-      "RTO Initiated": "shipped",
-      "RTO Delivered": "cancelled",
-    };
+    const payload = req.body || {};
+    console.log("Shiprocket webhook:", JSON.stringify(payload, null, 2));
 
-    const mappedStatus = statusMap[srStatus];
+    const awbCode = payload.awb || payload.awb_code;
+    const shipmentId = String(payload.shipment_id || payload.shipmentId || payload.shipment?.shipment_id || "").trim();
+    const shiprocketOrderId = String(
+      payload.order_id ||
+      payload.orderId ||
+      payload.order?.id ||
+      payload.channel_order_id ||
+      payload.reference_no ||
+      ""
+    ).trim();
+    const srStatus = payload.current_status || payload.status;
 
-    const ordersSnap = await db
-      .collection("orders")
-      .where("shiprocket.awbCode", "==", awbCode)
-      .limit(1)
-      .get();
+    if ((!awbCode || typeof awbCode !== "string") && !shipmentId && !shiprocketOrderId) {
+      return res.status(200).json({ received: true, skipped: true, reason: "missing_tracking_identity" });
+    }
+    if (!srStatus || typeof srStatus !== "string") {
+      return res.status(200).json({ received: true, skipped: true, reason: "missing_status" });
+    }
 
-    if (ordersSnap.empty) {
-      console.warn(`⚠️ Shiprocket webhook: No order found for AWB ${awbCode}`);
-      return res.status(200).json({ received: true, skipped: true, reason: "no_order_for_awb" });
+    const mappedStatus = mapShiprocketStatus(srStatus, null);
+
+    let ordersSnap;
+    if (awbCode && typeof awbCode === "string") {
+      ordersSnap = await db
+        .collection("orders")
+        .where("shiprocket.awbCode", "==", awbCode)
+        .limit(1)
+        .get();
+    }
+
+    if ((!ordersSnap || ordersSnap.empty) && shipmentId) {
+      ordersSnap = await db
+        .collection("orders")
+        .where("shiprocket.shipmentId", "==", shipmentId)
+        .limit(1)
+        .get();
+    }
+
+    if ((!ordersSnap || ordersSnap.empty) && shiprocketOrderId) {
+      ordersSnap = await db
+        .collection("orders")
+        .where("shiprocket.orderId", "==", shiprocketOrderId)
+        .limit(1)
+        .get();
+    }
+
+    if ((!ordersSnap || ordersSnap.empty) && shiprocketOrderId) {
+      const directDoc = await db.collection("orders").doc(shiprocketOrderId).get();
+      if (directDoc.exists) {
+        ordersSnap = {
+          empty: false,
+          docs: [directDoc],
+        };
+      }
+    }
+
+    if (!ordersSnap || ordersSnap.empty) {
+      console.warn(
+        `Shiprocket webhook: No order found for AWB ${awbCode || "-"} / shipment ${shipmentId || "-"} / order ${shiprocketOrderId || "-"}`
+      );
+      return res.status(200).json({ received: true, skipped: true, reason: "no_order_for_identity" });
     }
 
     const orderDoc = ordersSnap.docs[0];
     const current = orderDoc.data() || {};
     const currentSrStatus = current.shiprocket?.status;
 
-    // Idempotency: if status hasn't changed, acknowledge but don't touch Firestore
     if (currentSrStatus === srStatus) {
-      console.log(`ℹ️ Shiprocket webhook: Status unchanged for order ${orderDoc.id} (${srStatus})`);
+      console.log(`Shiprocket webhook: Status unchanged for order ${orderDoc.id} (${srStatus})`);
       return res.status(200).json({ received: true, updated: false, orderId: orderDoc.id, status: srStatus });
     }
 
     const updatePayload = {
       "shiprocket.status": srStatus,
       "shiprocket.lastUpdate": new Date().toISOString(),
-      "shiprocket.awbCode": awbCode, // always persist the AWB code from the webhook payload
     };
+    if (awbCode && typeof awbCode === "string") updatePayload["shiprocket.awbCode"] = awbCode;
+    if (shipmentId) updatePayload["shiprocket.shipmentId"] = shipmentId;
+    if (shiprocketOrderId) updatePayload["shiprocket.orderId"] = shiprocketOrderId;
 
     if (mappedStatus) {
       updatePayload.status = mappedStatus;
@@ -68,12 +117,17 @@ router.post("/shiprocket", async (req, res) => {
     }
 
     await orderDoc.ref.update(updatePayload);
-    console.log(`✅ Shiprocket webhook: Order ${orderDoc.id} updated → ${srStatus}`);
-    res
-      .status(200)
-      .json({ received: true, updated: true, orderId: orderDoc.id, status: srStatus, mappedStatus: mappedStatus || null });
+    console.log(`Shiprocket webhook: Order ${orderDoc.id} updated -> ${srStatus}`);
+
+    res.status(200).json({
+      received: true,
+      updated: true,
+      orderId: orderDoc.id,
+      status: srStatus,
+      mappedStatus: mappedStatus || null,
+    });
   } catch (err) {
-    console.error("❌ Shiprocket webhook error:", err.message);
+    console.error("Shiprocket webhook error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

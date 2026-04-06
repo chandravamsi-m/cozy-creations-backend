@@ -34,6 +34,7 @@ router.put("/settings/packaging", settingsController.updatePackagingSettings);
 // Orders
 router.get("/orders", adminController.getOrders);
 router.patch("/orders/:id", adminController.updateOrder);
+router.post("/orders/:id/cancel", adminController.cancelOrder);
 
 // Shiprocket Sync
 const shippingController = require("../controllers/shippingController");

@@ -1,66 +1,68 @@
 // src/controllers/orderController.js
+const crypto = require("crypto");
 const { db, admin } = require("../config/firebase");
-const { createRazorpayOrder, verifySignature, updateInventory } = require("../services/paymentService");
+const { createRazorpayOrder, verifySignature, createOrderRecord } = require("../services/paymentService");
+const { buildCanonicalOrder } = require("../services/orderPricingService");
+const { sendOrderConfirmationEmail } = require("../services/emailService");
 
-function toNonNegativeNumber(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num) || num < 0) return null;
-  return num;
+function buildCodFingerprint(orderData) {
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify({
+      userId: orderData.userId,
+      items: orderData.items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+      shippingAddress: {
+        pincode: orderData.shippingAddress?.pincode,
+        phone: orderData.shippingAddress?.phone,
+      },
+      total: orderData.total,
+      paymentMethod: orderData.paymentMethod,
+    }))
+    .digest("hex");
 }
 
-function validateOrderItems(items) {
-  if (!Array.isArray(items) || items.length === 0) return false;
-  return items.every((item) => {
-    if (!item || typeof item !== "object") return false;
-    if (!item.productId || typeof item.productId !== "string") return false;
-    const qty = toNonNegativeNumber(item.quantity);
-    const price = toNonNegativeNumber(item.price);
-    return qty !== null && qty > 0 && price !== null;
+function handleOrderError(res, error, fallbackMessage) {
+  const status = error.status || 500;
+  return res.status(status).json({
+    error: error.message || fallbackMessage,
+    code: error.code || "ORDER_ERROR",
   });
-}
-
-function validateOrderData(orderData) {
-  if (!orderData || typeof orderData !== "object") return false;
-
-  if (!validateOrderItems(orderData.items)) return false;
-
-  const total = toNonNegativeNumber(orderData.total);
-  if (total === null || total === 0) return false;
-
-  if (orderData.deliveryFee != null && toNonNegativeNumber(orderData.deliveryFee) === null) {
-    return false;
-  }
-  if (orderData.platformFee != null && toNonNegativeNumber(orderData.platformFee) === null) {
-    return false;
-  }
-
-  const addr = orderData.shippingAddress || {};
-  if (!addr || typeof addr !== "object" || !addr.fullName || !addr.pincode) {
-    return false;
-  }
-
-  return true;
 }
 
 exports.createPayment = async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Login required" });
 
-    const total = toNonNegativeNumber(req.body.total);
-    if (total === null || total === 0) {
-      return res.status(400).json({ error: "Invalid total amount" });
-    }
+    const canonicalOrder = await buildCanonicalOrder({
+      payload: req.body,
+      paymentMethod: "online",
+      user: req.user,
+    });
 
-    const razorpayOrder = await createRazorpayOrder(total);
+    const razorpayOrder = await createRazorpayOrder(canonicalOrder.total);
+    await db.collection("paymentAttempts").doc(razorpayOrder.id).set({
+      userId: req.user.uid,
+      status: "pending",
+      orderData: canonicalOrder,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
     res.json({
       orderId: razorpayOrder.id,
       amount: razorpayOrder.amount,
       currency: razorpayOrder.currency,
       key: process.env.RAZORPAY_KEY_ID,
+      pricing: {
+        subtotal: canonicalOrder.subtotal,
+        discountTotal: canonicalOrder.discountTotal,
+        deliveryFee: canonicalOrder.deliveryFee,
+        platformFee: canonicalOrder.platformFee,
+        total: canonicalOrder.total,
+      },
     });
   } catch (err) {
     console.error("Create payment error:", err);
-    res.status(500).json({ error: "Payment initiation failed" });
+    handleOrderError(res, err, "Payment initiation failed");
   }
 };
 
@@ -69,21 +71,15 @@ exports.verifyPayment = async (req, res) => {
     razorpay_order_id,
     razorpay_payment_id,
     razorpay_signature,
-    orderData,
   } = req.body;
 
   try {
+    if (!req.user) return res.status(401).json({ error: "Login required" });
+
     if (!verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
-      console.error("Signature mismatch. Check RAZORPAY_KEY_SECRET in .env!");
-      return res.status(400).json({ error: "Payment verification failed: Signature mismatch" });
+      return res.status(400).json({ error: "Payment verification failed", code: "INVALID_SIGNATURE" });
     }
 
-    if (!validateOrderData(orderData)) {
-      console.error("Invalid order data:", JSON.stringify(orderData, null, 2));
-      return res.status(400).json({ error: "Invalid order data" });
-    }
-
-    // Idempotency: if we've already created an order for this payment, return it
     const existingSnap = await db
       .collection("orders")
       .where("paymentId", "==", razorpay_payment_id)
@@ -95,99 +91,119 @@ exports.verifyPayment = async (req, res) => {
       return res.json({ success: true, orderId: existing.id, duplicate: true });
     }
 
-    await updateInventory(orderData.items);
+    const attemptRef = db.collection("paymentAttempts").doc(razorpay_order_id);
+    const attemptSnap = await attemptRef.get();
+    if (!attemptSnap.exists) {
+      return res.status(400).json({ error: "Payment attempt not found", code: "MISSING_PAYMENT_ATTEMPT" });
+    }
 
-    const orderRef = await db.collection("orders").add({
-      ...orderData,
-      userId: req.user?.uid || "guest",
-      status: "confirmed",
-      statusHistory: {
-        pending: admin.firestore.FieldValue.serverTimestamp(),
-        confirmed: admin.firestore.FieldValue.serverTimestamp(),
+    const attemptData = attemptSnap.data();
+    if (attemptData.userId !== req.user.uid) {
+      return res.status(403).json({ error: "Access denied", code: "PAYMENT_ATTEMPT_MISMATCH" });
+    }
+
+    if (attemptData.status === "completed" && attemptData.orderId) {
+      return res.json({ success: true, orderId: attemptData.orderId, duplicate: true });
+    }
+
+    const orderId = await createOrderRecord({
+      orderData: {
+        ...attemptData.orderData,
+        userId: req.user.uid,
+        paymentMethod: "online",
+        status: "confirmed",
+        statusHistory: {
+          pending: admin.firestore.FieldValue.serverTimestamp(),
+          confirmed: admin.firestore.FieldValue.serverTimestamp(),
+        },
       },
       paymentId: razorpay_payment_id,
-      courierId: orderData.courierId || null,
-      courierName: orderData.courierName || null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      paymentOrderId: razorpay_order_id,
     });
 
-    res.json({ success: true, orderId: orderRef.id });
+    await attemptRef.set({
+      status: "completed",
+      orderId,
+      paymentId: razorpay_payment_id,
+      completedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    sendOrderConfirmationEmail(attemptData.orderData.userEmail, {
+      ...attemptData.orderData,
+      orderId,
+    }).catch((emailError) => {
+      console.error("Order confirmation email failed:", emailError);
+    });
+
+    res.json({ success: true, orderId });
   } catch (err) {
     console.error("Verify payment error:", err);
-    res.status(500).json({ error: "Order processing failed" });
+    handleOrderError(res, err, "Order processing failed");
   }
 };
 
 exports.placeCod = async (req, res) => {
   try {
-    const { items, total, deliveryFee, platformFee, shippingAddress, customerName, userEmail } = req.body;
+    if (!req.user) return res.status(401).json({ error: "Login required" });
 
-    const orderData = {
-      items,
-      total,
-      deliveryFee,
-      platformFee,
-      shippingAddress,
-      customerName,
-      userEmail,
-      courierId: req.body.courierId || null,
-      courierName: req.body.courierName || null,
-    };
+    const canonicalOrder = await buildCanonicalOrder({
+      payload: req.body,
+      paymentMethod: "cod",
+      user: req.user,
+    });
 
-    if (!validateOrderData(orderData)) {
-      return res.status(400).json({ error: "Invalid order data" });
-    }
-
-    const userId = req.user?.uid || "guest";
-
-    // Basic idempotency: avoid duplicate recent COD orders with same items & total
+    const fingerprint = buildCodFingerprint(canonicalOrder);
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-
     const recentSnap = await db
       .collection("orders")
-      .where("userId", "==", userId)
+      .where("userId", "==", req.user.uid)
+      .where("paymentMethod", "==", "cod")
       .where("status", "==", "pending")
       .get();
 
-    const itemsJson = JSON.stringify(items || []);
     const maybeDuplicate = recentSnap.docs.find((doc) => {
       const data = doc.data();
-      const sameTotal = data.total === total;
-      const sameItems = JSON.stringify(data.items || []) === itemsJson;
-      const createdAt = data.createdAt && data.createdAt.toDate ? data.createdAt.toDate() : null;
-      const recent = createdAt && createdAt >= fiveMinutesAgo;
-      return sameTotal && sameItems && recent && data.paymentMethod === "cod";
+      const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : null;
+      return data.codFingerprint === fingerprint && createdAt && createdAt >= fiveMinutesAgo;
     });
 
     if (maybeDuplicate) {
       return res.json({ success: true, orderId: maybeDuplicate.id, duplicate: true });
     }
 
-    await updateInventory(items);
-
-    const orderRef = await db.collection("orders").add({
-      userId,
-      items,
-      total,
-      deliveryFee: deliveryFee ?? 0,
-      platformFee: platformFee ?? 0,
-      shippingAddress,
-      customerName,
-      userEmail,
-      courierId: orderData.courierId || null,
-      courierName: orderData.courierName || null,
-      status: "pending",
-      statusHistory: {
-        pending: admin.firestore.FieldValue.serverTimestamp(),
+    const orderId = await createOrderRecord({
+      orderData: {
+        ...canonicalOrder,
+        userId: req.user.uid,
+        status: "pending",
+        statusHistory: {
+          pending: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        codFingerprint: fingerprint,
       },
-      paymentMethod: "cod",
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    res.json({ success: true, orderId: orderRef.id });
+    sendOrderConfirmationEmail(canonicalOrder.userEmail, {
+      ...canonicalOrder,
+      orderId,
+    }).catch((emailError) => {
+      console.error("COD confirmation email failed:", emailError);
+    });
+
+    res.json({
+      success: true,
+      orderId,
+      pricing: {
+        subtotal: canonicalOrder.subtotal,
+        discountTotal: canonicalOrder.discountTotal,
+        deliveryFee: canonicalOrder.deliveryFee,
+        platformFee: canonicalOrder.platformFee,
+        total: canonicalOrder.total,
+      },
+    });
   } catch (err) {
     console.error("Place COD error:", err);
-    res.status(500).json({ error: "Order placement failed", message: err.message, stack: err.stack });
+    handleOrderError(res, err, "Order placement failed");
   }
 };
 
