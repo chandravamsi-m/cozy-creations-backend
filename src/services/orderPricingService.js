@@ -20,6 +20,12 @@ function toCurrency(value) {
   return Math.max(0, Math.round(num));
 }
 
+function toCurrencyCeil(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.ceil(num));
+}
+
 function normalizeAddress(address) {
   if (!address || typeof address !== "object") {
     throw createError(400, "Shipping address is required", "INVALID_ADDRESS");
@@ -203,7 +209,7 @@ async function calculateShippingFee({ items, shippingAddress, paymentMethod, dis
 
     const freight = Number(selectedPartner.freight_charge || selectedPartner.rate || 0);
     const codCharges = paymentMethod === "cod" ? Number(selectedPartner.cod_charges || 0) : 0;
-    const deliveryFee = toCurrency((freight + codCharges) * 1.18);
+    const deliveryFee = toCurrencyCeil((freight + codCharges) * 1.18);
 
     return {
       deliveryFee,
