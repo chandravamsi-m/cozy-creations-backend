@@ -534,6 +534,31 @@ exports.cancelOrder = async (req, res) => {
   }
 };
 
+exports.deleteOrder = async (req, res) => {
+  try {
+    const orderRef = db.collection("orders").doc(req.params.id);
+    const orderSnap = await orderRef.get();
+    
+    if (!orderSnap.exists) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    // Optional: Only allow deleting cancelled orders as per logic
+    const orderData = orderSnap.data();
+    if (orderData.status !== "cancelled" && orderData.status !== "delivered") {
+       // We can be strict or loose here. User said "clean up the orders which are no longer needed", 
+       // but typically we delete cancelled ones. I'll allow deleting anything if requested via this admin route.
+    }
+
+    await orderRef.delete();
+
+    res.json({ success: true, message: "Order deleted permanently" });
+  } catch (err) {
+    console.error("❌ Delete Order Error:", err);
+    res.status(500).json({ error: "Failed to delete order", details: err.message });
+  }
+};
+
 // --- Users ---
 
 exports.createUser = async (req, res) => {
