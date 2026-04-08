@@ -20,7 +20,15 @@ const contactRoutes = require("./src/routes/contact");
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    "https://cozycreations.in",
+    "https://www.cozycreations.in",
+    "http://localhost:5173",
+    "http://localhost:4173",
+  ],
+  credentials: true,
+}));
 app.use(express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf ? buf.toString("utf8") : "";
