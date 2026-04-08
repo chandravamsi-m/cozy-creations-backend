@@ -21,14 +21,19 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: [
-    "https://cozycreations.in",
-    "https://www.cozycreations.in",
-    "http://localhost:5173",
-    "http://localhost:4173",
-  ],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    // Allow any localhost port for local development
+    if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
+    // Allow production domains
+    const allowed = ["https://cozycreations.in", "https://www.cozycreations.in"];
+    if (allowed.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS blocked: ${origin}`));
+  },
   credentials: true,
 }));
+
 app.use(express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf ? buf.toString("utf8") : "";
