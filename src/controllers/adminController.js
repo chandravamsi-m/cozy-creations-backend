@@ -462,6 +462,31 @@ exports.updateOrder = async (req, res) => {
   }
 };
 
+exports.updateUser = async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const { email, password, displayName, role } = req.body;
+    const updateData = {};
+    if (password) updateData.password = password;
+    if (displayName) updateData.displayName = displayName;
+
+    if (Object.keys(updateData).length > 0) {
+      await admin.auth().updateUser(uid, updateData);
+    }
+
+    const firestoreUpdate = {};
+    if (displayName) firestoreUpdate.displayName = displayName;
+    if (role) firestoreUpdate.role = role;
+    if (Object.keys(firestoreUpdate).length > 0) {
+      await db.collection("users").doc(uid).update(firestoreUpdate);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.cancelOrder = async (req, res) => {
   try {
     const orderRef = db.collection("orders").doc(req.params.id);

@@ -43,6 +43,7 @@ router.post("/orders/:id/sync", shippingController.syncStatus);
 
 // Users
 router.post("/users", adminController.createUser);
+router.patch("/users/:uid", adminController.updateUser);
 router.delete("/users/:uid", adminController.deleteUser);
 
 // Catalogue
