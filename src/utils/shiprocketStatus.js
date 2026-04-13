@@ -19,7 +19,7 @@ function mapShiprocketStatus(status, fallback = null) {
     normalized === "PICKUP SCHEDULED" ||
     normalized === "PICKUP GENERATED"
   ) {
-    return "confirmed";
+    return "packed";
   }
 
   if (

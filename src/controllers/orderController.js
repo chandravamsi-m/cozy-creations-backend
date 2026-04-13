@@ -111,10 +111,9 @@ exports.verifyPayment = async (req, res) => {
         ...attemptData.orderData,
         userId: req.user.uid,
         paymentMethod: "online",
-        status: "confirmed",
+        status: "new",
         statusHistory: {
-          pending: admin.firestore.FieldValue.serverTimestamp(),
-          confirmed: admin.firestore.FieldValue.serverTimestamp(),
+          new: admin.firestore.FieldValue.serverTimestamp(),
         },
       },
       paymentId: razorpay_payment_id,
@@ -158,7 +157,7 @@ exports.placeCod = async (req, res) => {
       .collection("orders")
       .where("userId", "==", req.user.uid)
       .where("paymentMethod", "==", "cod")
-      .where("status", "==", "pending")
+      .where("status", "==", "new")
       .get();
 
     const maybeDuplicate = recentSnap.docs.find((doc) => {
@@ -175,9 +174,9 @@ exports.placeCod = async (req, res) => {
       orderData: {
         ...canonicalOrder,
         userId: req.user.uid,
-        status: "pending",
+        status: "new",
         statusHistory: {
-          pending: admin.firestore.FieldValue.serverTimestamp(),
+          new: admin.firestore.FieldValue.serverTimestamp(),
         },
         codFingerprint: fingerprint,
       },

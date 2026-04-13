@@ -435,7 +435,7 @@ exports.getOrders = async (req, res) => {
 exports.updateOrder = async (req, res) => {
   try {
     const nextStatus = String(req.body.status || "").trim().toLowerCase();
-    const allowedStatuses = new Set(["pending", "confirmed", "packed", "shipped", "delivered", "cancelled"]);
+    const allowedStatuses = new Set(["new", "packed", "shipped", "delivered", "cancelled"]);
     if (!allowedStatuses.has(nextStatus)) {
       return res.status(400).json({ error: "Invalid order status" });
     }
