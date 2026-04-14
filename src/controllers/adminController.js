@@ -130,32 +130,30 @@ exports.getDashboardStats = async (req, res) => {
 
     const statusCountMap = {};
 
-    const ordersSnap = await db.collection("orders").get();
-    totalOrders = ordersSnap.size;
-
+    // --- OPTIMIZED DATA FETCHING ---
+    // Fetch only orders from the last 6 months for trends and status breakdown
+    const ordersSnap = await db.collection("orders")
+      .where("createdAt", ">=", sixMonthsAgo)
+      .get();
+    
     ordersSnap.forEach(doc => {
       const data = doc.data();
       
-      // Sales Trend Logging (Concurrent ranges)
+      // Sales Trend Logging
       let orderDate = null;
       if (data.createdAt) {
         orderDate = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt._seconds * 1000);
       }
       
       if (orderDate) {
-        // days map
         if (orderDate >= sevenDaysAgo) {
           const dayStr = orderDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           if (trendDaysMap[dayStr]) trendDaysMap[dayStr].orders += 1;
         }
-        
-        // weeks map
         if (orderDate >= sixWeeksAgo) {
           const week = weeksRanges.find(w => orderDate >= w.start && orderDate <= w.end);
           if (week && trendWeeksMap[week.label]) trendWeeksMap[week.label].orders += 1;
         }
-
-        // months map
         if (orderDate >= sixMonthsAgo) {
           const monthStr = orderDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
           if (trendMonthsMap[monthStr]) trendMonthsMap[monthStr].orders += 1;
@@ -164,17 +162,25 @@ exports.getDashboardStats = async (req, res) => {
 
       // Aggregate order count by status
       const status = data.status || "unknown";
-      if (!statusCountMap[status]) {
-        statusCountMap[status] = 0;
-      }
+      if (!statusCountMap[status]) statusCountMap[status] = 0;
       statusCountMap[status] += 1;
 
-      // Process delivered orders for total revenue
+      // Process delivered orders for total revenue (Recent Revenue)
       if (status === "delivered") {
-        const orderTotal = typeof data.total === "number" ? data.total : 0;
-        totalRevenue += orderTotal;
+        totalRevenue += (Number(data.total) || 0);
       }
     });
+
+    // Supplementary counts for "All Time" (Fast O(1) count queries)
+    const [totalUsersCount, activeProductsCount, allTimeOrdersCount] = await Promise.all([
+      db.collection("users").count().get(),
+      db.collection("products").where("isActive", "==", true).count().get(),
+      db.collection("orders").count().get()
+    ]);
+
+    const totalUsers = totalUsersCount.data().count;
+    const activeProducts = activeProductsCount.data().count;
+    const allTimeOrders = allTimeOrdersCount.data().count;
 
     const salesTrend = {
       days: Object.values(trendDaysMap),
@@ -191,13 +197,8 @@ exports.getDashboardStats = async (req, res) => {
       }))
       .sort((a, b) => b.value - a.value);
 
-    // 2. Total Users
-    const usersSnap = await db.collection("users").get();
-    const totalUsers = usersSnap.size;
-
-    // 3. Active Products
-    const productsSnap = await db.collection("products").where("isActive", "==", true).get();
-    const activeProducts = productsSnap.size;
+    // Counts derived from optimized queries above
+    // (Replacing heavy snapshots)
 
     // 4. Recent Orders (limit 5)
     const recentOrdersSnap = await db.collection("orders")
@@ -233,7 +234,7 @@ exports.getDashboardStats = async (req, res) => {
       success: true,
       stats: {
         totalRevenue,
-        totalOrders,
+        totalOrders: allTimeOrders,
         deliveredOrders: statusCountMap["delivered"] || 0,
         totalUsers,
         activeProducts,
