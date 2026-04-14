@@ -44,9 +44,8 @@ app.use(express.urlencoded({ extended: true }));
 // Static files (if any)
 app.use("/templates", express.static(path.join(__dirname, "templates")));
 
-// Health check
+// Health check (Silent pings are handled here)
 app.get("/health", (req, res) => {
-  console.log("✅ /health ping received at", new Date().toISOString());
   res.json({ status: "ok", timestamp: new Date() });
 });
 

@@ -48,7 +48,7 @@ async function _fetchAsBase64(url) {
     if (url.endsWith('.ttf')) contentType = 'font/truetype';
     return `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`;
   } catch (err) {
-    console.warn(`⚠️  Asset prefetch failed for ${url.split('/').pop()}: ${err.message}`);
+    console.warn(`⚠️  Asset prefetch failed for ${url.split('/').pop()}: ${err.message} (Will attempt to auto-heal later)`);
     return null;
   }
 }
@@ -68,15 +68,36 @@ async function prefetchCatalogueAssets() {
 /**
  * Inline all known cached assets AND also inline any extra product image URLs
  * that were fetched on-demand.
+ * 
+ * [AUTO-HEALING]: If a core static asset is missing from the cache (e.g. failed at startup),
+ * this function will attempt to fetch it on-demand before inlining.
  */
-function inlineCatalogueAssets(html, extraCache = new Map()) {
+async function inlineCatalogueAssets(html, extraCache = new Map()) {
   let result = html;
-  for (const [url, dataUrl] of catalogueAssetCache) {
-    result = result.split(url).join(dataUrl);
+
+  // 1. Handle Static Core Assets (fonts, logos, etc.)
+  for (const url of CATALOGUE_STATIC_URLS) {
+    let dataUrl = catalogueAssetCache.get(url);
+    
+    // Auto-heal: If missing, try to fetch it now
+    if (!dataUrl) {
+      console.log(`🔄 Auto-healing missing asset: ${url.split('/').pop()}`);
+      dataUrl = await _fetchAsBase64(url);
+      if (dataUrl) {
+        catalogueAssetCache.set(url, dataUrl);
+      }
+    }
+
+    if (dataUrl) {
+      result = result.split(url).join(dataUrl);
+    }
   }
+
+  // 2. Handle Dynamic Product Images
   for (const [url, dataUrl] of extraCache) {
     result = result.split(url).join(dataUrl);
   }
+
   return result;
 }
 
@@ -384,7 +405,7 @@ async function renderPagesToPdf(htmlPages, productImageCache, userId, progressSt
       const progress = progressStart + Math.round((i / total) * (progressEnd - progressStart));
       if (userId) catalogueProgress.set(userId, { progress, currentAction: `Rendering page ${i + 1} of ${total}...` });
 
-      const inlined = inlineCatalogueAssets(htmlPages[i], productImageCache);
+      const inlined = await inlineCatalogueAssets(htmlPages[i], productImageCache);
       await page.setContent(inlined, { waitUntil: 'domcontentloaded' });
       pdfDocs.push(await page.pdf({ format: "A4", printBackground: true }));
     }
