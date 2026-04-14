@@ -30,8 +30,6 @@ function isValidWebhookSignature(req) {
 
 router.post("/updates", async (req, res) => {
   try {
-    console.log("📥 --- Incoming Shiprocket Webhook ---");
-    
     if (!process.env.SHIPROCKET_WEBHOOK_SECRET) {
       console.error("❌ Webhook Error: SHIPROCKET_WEBHOOK_SECRET is missing from environment variables.");
       return res.status(503).json({ error: "Webhook secret is not configured", code: "WEBHOOK_NOT_CONFIGURED" });
@@ -43,7 +41,6 @@ router.post("/updates", async (req, res) => {
     }
 
     const payload = req.body || {};
-    console.log("📦 Webhook Payload received:", JSON.stringify(payload, null, 2));
 
     const awbCode = payload.awb || payload.awb_code;
     const shipmentId = String(payload.shipment_id || payload.shipmentId || payload.shipment?.shipment_id || "").trim();
@@ -113,7 +110,6 @@ router.post("/updates", async (req, res) => {
     const currentSrStatus = current.shiprocket?.status;
 
     if (currentSrStatus === srStatus) {
-      console.log(`Shiprocket webhook: Status unchanged for order ${orderDoc.id} (${srStatus})`);
       return res.status(200).json({ received: true, updated: false, orderId: orderDoc.id, status: srStatus });
     }
 
@@ -131,7 +127,6 @@ router.post("/updates", async (req, res) => {
     }
 
     await orderDoc.ref.update(updatePayload);
-    console.log(`Shiprocket webhook: Order ${orderDoc.id} updated -> ${srStatus}`);
 
     res.status(200).json({
       received: true,
