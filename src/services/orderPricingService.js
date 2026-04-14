@@ -172,7 +172,10 @@ async function calculateShippingFee({ items, shippingAddress, paymentMethod, dis
   const standardFee = toCurrency(deliveryConfig.amount);
   const freeDeliveryThreshold = toCurrency(deliveryConfig.freeDeliveryThreshold);
 
-  if (deliveryConfig.isShippingFeeEnabled === false) {
+  // Environment variable override (Source of Truth)
+  const isShippingFeeEnabled = process.env.ENABLE_SHIPPING_FEE !== 'false';
+
+  if (!isShippingFeeEnabled) {
     return { deliveryFee: 0, courierId: null, courierName: null, shippingSource: "disabled" };
   }
 

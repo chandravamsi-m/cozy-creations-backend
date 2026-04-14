@@ -12,6 +12,10 @@ exports.getDeliverySettings = async (req, res) => {
     const data = doc.data();
     if (data.isShippingFeeEnabled === undefined) data.isShippingFeeEnabled = true;
 
+    // Environment variable override (Source of Truth)
+    const isShippingFeeEnabled = process.env.ENABLE_SHIPPING_FEE !== 'false';
+    data.isShippingFeeEnabled = isShippingFeeEnabled;
+
     res.json({ delivery: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -64,6 +68,10 @@ exports.getPublicSettings = async (req, res) => {
 
     const deliveryData = deliveryDoc.exists ? deliveryDoc.data() : { isActive: false, amount: 0, freeDeliveryThreshold: 0, isShippingFeeEnabled: true };
     if (deliveryData.isShippingFeeEnabled === undefined) deliveryData.isShippingFeeEnabled = true;
+
+    // Environment variable override (Source of Truth)
+    const isShippingFeeEnabled = process.env.ENABLE_SHIPPING_FEE !== 'false';
+    deliveryData.isShippingFeeEnabled = isShippingFeeEnabled;
 
     res.json({
       delivery: deliveryData,
