@@ -30,15 +30,20 @@ function isValidWebhookSignature(req) {
 
 router.post("/updates", async (req, res) => {
   try {
+    console.log("📥 --- Incoming Shiprocket Webhook ---");
+    
     if (!process.env.SHIPROCKET_WEBHOOK_SECRET) {
+      console.error("❌ Webhook Error: SHIPROCKET_WEBHOOK_SECRET is missing from environment variables.");
       return res.status(503).json({ error: "Webhook secret is not configured", code: "WEBHOOK_NOT_CONFIGURED" });
     }
+
     if (!isValidWebhookSignature(req)) {
+      console.warn("⚠️ Webhook Security: Invalid Signature. Check if your Shiprocket token matches Render secret.");
       return res.status(401).json({ error: "Invalid webhook signature", code: "INVALID_WEBHOOK_SIGNATURE" });
     }
 
     const payload = req.body || {};
-    console.log("Shiprocket webhook:", JSON.stringify(payload, null, 2));
+    console.log("📦 Webhook Payload received:", JSON.stringify(payload, null, 2));
 
     const awbCode = payload.awb || payload.awb_code;
     const shipmentId = String(payload.shipment_id || payload.shipmentId || payload.shipment?.shipment_id || "").trim();
