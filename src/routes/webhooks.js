@@ -6,20 +6,29 @@ const { db } = require("../config/firebase");
 const { mapShiprocketStatus } = require("../utils/shiprocketStatus");
 
 function getWebhookSignature(req) {
-  return req.get("x-shiprocket-signature") || req.get("x-webhook-signature") || req.get("x-signature") || "";
+  return req.get("x-api-key") || req.get("x-shiprocket-signature") || req.get("x-webhook-signature") || req.get("x-signature") || "";
 }
 
 function isValidWebhookSignature(req) {
   const secret = process.env.SHIPROCKET_WEBHOOK_SECRET;
-  if (!secret || !req.rawBody) return false;
+  if (!secret || (!req.rawBody && !req.get("x-api-key"))) return false;
 
-  const digest = crypto.createHmac("sha256", secret).update(req.rawBody).digest("hex");
-  const base64Digest = crypto.createHmac("sha256", secret).update(req.rawBody).digest("base64");
   const provided = getWebhookSignature(req).trim();
-  return provided === digest || provided === base64Digest;
+
+  // 1. Simple Token Match (as shown in the Shiprocket UI screenshot)
+  if (provided === secret) return true;
+
+  // 2. HMAC Signature Verification (Fallback for robust providers)
+  if (req.rawBody) {
+    const digest = crypto.createHmac("sha256", secret).update(req.rawBody).digest("hex");
+    const base64Digest = crypto.createHmac("sha256", secret).update(req.rawBody).digest("base64");
+    return provided === digest || provided === base64Digest;
+  }
+
+  return false;
 }
 
-router.post("/shiprocket", async (req, res) => {
+router.post("/updates", async (req, res) => {
   try {
     if (!process.env.SHIPROCKET_WEBHOOK_SECRET) {
       return res.status(503).json({ error: "Webhook secret is not configured", code: "WEBHOOK_NOT_CONFIGURED" });
