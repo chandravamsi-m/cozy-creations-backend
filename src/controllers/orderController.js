@@ -45,6 +45,7 @@ exports.createPayment = async (req, res) => {
       status: "pending",
       orderData: canonicalOrder,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Auto-delete after 30 days
     });
 
     res.json({

@@ -4,7 +4,6 @@ const {
   EMAIL_FROM,
   wrapLayout,
   sendOrderConfirmationEmail,
-  sendStatusUpdateEmail,
 } = require("../services/emailService");
 const { admin } = require("../config/firebase");
 
@@ -14,10 +13,16 @@ exports.sendWelcomeEmail = async (req, res) => {
     await resend.emails.send({
       from: `Cozy Creations <${EMAIL_FROM}>`,
       to: email,
-      subject: "Welcome to Cozy Creations",
+      subject: "🕯️ Welcome to Cozy Creations",
       html: wrapLayout(
-        "Welcome to Cozy Creations",
-        "<p>We're thrilled to have you! Explore our handcrafted candles and find your perfect glow.</p>",
+        "Welcome to Cozy Creations!",
+        `
+          <p style="margin:0 0 16px; color:#555;">We're so glad you're here. At <strong style="color:#191816;">Cozy Creations</strong>, every candle is lovingly handcrafted to bring warmth, calm, and a little magic to your everyday moments.</p>
+          <p style="margin:0 0 28px; color:#555;">Browse our collection, find your perfect scent, and light up your world.</p>
+          <div style="text-align:center; margin-bottom:8px;">
+            <a href="https://cozycreations.in/products" style="display:inline-block; background-color:#ffd34d; color:#191816; padding:14px 32px; text-decoration:none; border-radius:10px; font-weight:700; font-family:Arial,sans-serif; font-size:15px; letter-spacing:0.5px;">Shop Now →</a>
+          </div>
+        `,
         name
       ),
     });
@@ -39,16 +44,7 @@ exports.sendOrderConfirmation = async (req, res) => {
   }
 };
 
-exports.sendStatusUpdate = async (req, res) => {
-  try {
-    const { email, status, name, expectedDeliveryDate } = req.body;
-    await sendStatusUpdateEmail({ email, status, name, expectedDeliveryDate });
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Status update email error:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-};
+
 
 exports.sendPasswordReset = async (req, res) => {
   const { email } = req.body;
@@ -61,30 +57,26 @@ exports.sendPasswordReset = async (req, res) => {
       await resend.emails.send({
         from: `Cozy Creations <${EMAIL_FROM}>`,
         to: email,
-        subject: "Reset Your Password - Cozy Creations",
+        subject: "🔐 Reset Your Password - Cozy Creations",
         html: wrapLayout(
-          "Password Reset",
-          `<p>We received a request to reset your password. Click the button below to secure your account:</p>
-           <div style="text-align: center; margin: 32px 0;">
-             <a href="${link}" style="background-color: #d97706; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">Reset Password</a>
-           </div>
-           <p>If you did not request this, you can safely ignore this email.</p>`,
-          userRecord.displayName || "there"
+          "Password Reset Request",
+          `
+            <p style="margin:0 0 16px; color:#555;">We received a request to reset the password for your Cozy Creations account. Click the button below to set a new password.</p>
+            <div style="text-align:center; margin:28px 0;">
+              <a href="${link}" style="display:inline-block; background-color:#191816; color:#ffd34d; padding:14px 32px; text-decoration:none; border-radius:10px; font-weight:700; font-family:Arial,sans-serif; font-size:15px; letter-spacing:0.5px;">Reset My Password →</a>
+            </div>
+            <div style="padding:18px 20px; background:#fdf8f0; border-radius:12px; border-left:4px solid #ffd34d;">
+              <p style="margin:0; font-size:13px; color:#6b6b6b;">⚠️ This link will expire shortly. If you did not request a password reset, you can safely ignore this email — your account is secure.</p>
+            </div>
+          `,
+          userRecord.displayName || email.split("@")[0].split(/[._]/)[0].replace(/^(.)/, (c) => c.toUpperCase())
         ),
       });
-    } else {
-      await resend.emails.send({
-        from: `Cozy Creations <${EMAIL_FROM}>`,
-        to: email,
-        subject: "Safe Sign-in to Cozy Creations",
-        html: wrapLayout(
-          "Sign-in Security",
-          "<p>You tried to reset your password, but your account is linked to a Google login. Please sign in directly using Google.</p>",
-          userRecord.displayName || "there"
-        ),
-      });
+      return res.json({ success: true });
     }
-    res.json({ success: true });
+
+    // Google / other OAuth account — no password reset available
+    return res.json({ success: false, type: "google_account" });
   } catch (err) {
     console.error("Password reset email error:", err);
     res.status(500).json({ success: false, error: err.message });

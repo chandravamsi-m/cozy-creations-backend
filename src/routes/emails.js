@@ -16,7 +16,6 @@ const adminOnly = [
 
 router.post("/send-welcome-email", publicEmailLimiter, emailController.sendWelcomeEmail);
 router.post("/send-order-confirmation", adminOnly, emailController.sendOrderConfirmation);
-router.post("/send-status-update", adminOnly, emailController.sendStatusUpdate);
 router.post("/send-password-reset", publicEmailLimiter, emailController.sendPasswordReset);
 
 module.exports = router;

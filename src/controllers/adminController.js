@@ -468,7 +468,13 @@ exports.updateUser = async (req, res) => {
     const { uid } = req.params;
     const { email, password, displayName, role } = req.body;
     const updateData = {};
-    if (password) updateData.password = password;
+    if (password) {
+      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])[A-Za-z\d!@#$%^&*(),.?":{}|<>]{8,}$/;
+      if (!passwordRegex.test(password)) {
+        return res.status(400).json({ error: "Password must be at least 8 characters long, and include uppercase, lowercase, a number, and a special character." });
+      }
+      updateData.password = password;
+    }
     if (displayName) updateData.displayName = displayName;
 
     if (Object.keys(updateData).length > 0) {
@@ -590,6 +596,12 @@ exports.deleteOrder = async (req, res) => {
 exports.createUser = async (req, res) => {
   try {
     const { email, password, displayName, role } = req.body;
+
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])[A-Za-z\d!@#$%^&*(),.?":{}|<>]{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({ error: "Password must be at least 8 characters long, and include uppercase, lowercase, a number, and a special character." });
+    }
+
     const userRecord = await admin.auth().createUser({ email, password, displayName });
     await db.collection("users").doc(userRecord.uid).set({
       uid: userRecord.uid,
