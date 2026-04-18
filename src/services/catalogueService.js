@@ -26,7 +26,6 @@ const CATALOGUE_STATIC_URLS = [
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/candlestick_ljryjs.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/lamp_svjx60.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770618965/Vector_iajl4o.svg',
-  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770800754/Star-badge_ttci0q.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548599/heroimage_ueotan.jpg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548514/logo_wq2xws.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548517/topcandle_mduuda.svg',

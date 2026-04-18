@@ -13,7 +13,7 @@ const linesLeftUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548
 const candlestickUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/candlestick_ljryjs.svg";
 const lampUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/lamp_svjx60.svg";
 const qrCodeUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770618965/Vector_iajl4o.svg";
-const starBadgeUrl = "https://res.cloudinary.com/dumkblp3v/image/upload/v1770800754/Star-badge_ttci0q.svg";
+
 
 // Common Font Styles for PDF embedding (Cloudinary-hosted)
 const fontStyles = `
