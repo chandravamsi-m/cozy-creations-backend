@@ -1,5 +1,6 @@
 // src/services/catalogueService.js
 const puppeteer = require("puppeteer");
+const fetch = require("node-fetch");
 const { PDFDocument } = require("pdf-lib");
 const { 
   generateWelcomePage, 
@@ -39,7 +40,10 @@ let catalogueAssetCache = new Map();
 
 async function _fetchAsBase64(url) {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      timeout: 30000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buffer = await res.arrayBuffer();
     let contentType = (res.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim();
@@ -102,6 +106,7 @@ async function inlineCatalogueAssets(html, extraCache = new Map()) {
 
 /**
  * Pre-fetch all product image URLs (original + optimized variant) to base64.
+ * Uses a concurrency pool to avoid saturating network or being rate-limited.
  */
 async function prefetchProductImages(products) {
   const cache = new Map();
@@ -118,10 +123,17 @@ async function prefetchProductImages(products) {
 
   const uniqueUrls = [...new Set(urls)];
   
-  await Promise.all(uniqueUrls.map(async (url) => {
-    const dataUrl = await _fetchAsBase64(url);
-    if (dataUrl) cache.set(url, dataUrl);
-  }));
+  const CONCURRENCY = 5;
+  for (let i = 0; i < uniqueUrls.length; i += CONCURRENCY) {
+    const batch = uniqueUrls.slice(i, i + CONCURRENCY);
+    await Promise.all(batch.map(async (url) => {
+      const dataUrl = await _fetchAsBase64(url);
+      if (dataUrl) cache.set(url, dataUrl);
+    }));
+    if (i + CONCURRENCY < uniqueUrls.length) {
+      await new Promise(resolve => setTimeout(resolve, 100)); // slight delay between batches
+    }
+  }
 
   return cache;
 }
@@ -145,11 +157,13 @@ async function _launchBrowser() {
   page.setDefaultTimeout(120000);
   page.setDefaultNavigationTimeout(120000);
 
-  // Block external requests — everything should be base64 inlined
+  // Block unnecessary external requests — allow base64 and Cloudinary fallback
   await page.setRequestInterception(true);
   page.on('request', (req) => {
     const rt = req.resourceType();
-    if (rt === 'document' || req.url().startsWith('data:')) {
+    const url = req.url();
+    // Allow data base64 and cloudinary fallbacks!
+    if (rt === 'document' || url.startsWith('data:') || url.includes('res.cloudinary.com')) {
       req.continue();
     } else {
       req.abort();
