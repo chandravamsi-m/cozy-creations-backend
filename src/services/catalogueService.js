@@ -105,36 +105,27 @@ async function inlineCatalogueAssets(html, extraCache = new Map()) {
 }
 
 /**
- * Pre-fetch all product image URLs (original + optimized variant) to base64.
- * Uses a concurrency pool to avoid saturating network or being rate-limited.
+ * Fast Optimization: Instead of downloading all images to Node.js as base64 (which can take minutes),
+ * we inject Cloudinary transformation parameters to create optimized, lightweight URLs.
+ * Puppeteer's native Chrome engine will then load these in parallel over HTTP/2, saving huge amounts of time.
  */
 async function prefetchProductImages(products) {
   const cache = new Map();
   const optimizeCloudinaryUrl = (url) => {
     if (!url || !url.includes('cloudinary.com')) return url;
-    const transformations = 'w_300,h_300,c_fill,f_auto,q_auto:good';
+    if (url.includes('/upload/w_') || url.includes('/upload/q_')) return url;
+    // High-quality but strongly optimized for A4 PDF layout memory
+    const transformations = 'w_600,h_600,c_fill,f_auto,q_auto:good';
     return url.replace('/upload/', `/upload/${transformations}/`);
   };
 
-  const urls = products
-    .map(p => p.imageUrl)
-    .filter(Boolean)
-    .flatMap(url => [url, optimizeCloudinaryUrl(url)]);
-
-  const uniqueUrls = [...new Set(urls)];
-  
-  const CONCURRENCY = 5;
-  for (let i = 0; i < uniqueUrls.length; i += CONCURRENCY) {
-    const batch = uniqueUrls.slice(i, i + CONCURRENCY);
-    await Promise.all(batch.map(async (url) => {
-      const dataUrl = await _fetchAsBase64(url);
-      if (dataUrl) cache.set(url, dataUrl);
-    }));
-    if (i + CONCURRENCY < uniqueUrls.length) {
-      await new Promise(resolve => setTimeout(resolve, 100)); // slight delay between batches
+  products.forEach(p => {
+    if (p.imageUrl) {
+      cache.set(p.imageUrl, optimizeCloudinaryUrl(p.imageUrl));
     }
-  }
+  });
 
+  // Return mapped URLs instantly, skipping all slow Node-side fetches
   return cache;
 }
 
@@ -419,7 +410,11 @@ async function renderPagesToPdf(htmlPages, productImageCache, userId, progressSt
       if (userId) catalogueProgress.set(userId, { progress, currentAction: `Rendering page ${i + 1} of ${total}...` });
 
       const inlined = await inlineCatalogueAssets(htmlPages[i], productImageCache);
-      await page.setContent(inlined, { waitUntil: 'domcontentloaded' });
+      
+      // 'load' ensures Puppeteer waits for all Cloudinary image <img src=".."> tags to fully download natively
+      await page.setContent(inlined, { waitUntil: 'load' });
+      await new Promise(r => setTimeout(r, 100)); // tiny 100ms render buffer for layout settling
+      
       pdfDocs.push(await page.pdf({ format: "A4", printBackground: true }));
     }
   } finally {
