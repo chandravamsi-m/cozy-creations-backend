@@ -4,6 +4,7 @@ const { db, admin } = require("../config/firebase");
 const { createRazorpayOrder, verifySignature, createOrderRecord } = require("../services/paymentService");
 const { buildCanonicalOrder } = require("../services/orderPricingService");
 const { sendOrderConfirmationEmail } = require("../services/emailService");
+const { sendOrderConfirmationWhatsApp, sendAdminNewOrderWhatsApp } = require("../services/whatsappService");
 
 function buildCodFingerprint(orderData) {
   return crypto
@@ -128,11 +129,18 @@ exports.verifyPayment = async (req, res) => {
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
 
-    sendOrderConfirmationEmail(attemptData.orderData.userEmail, {
-      ...attemptData.orderData,
-      orderId,
-    }).catch((emailError) => {
+    const confirmedOrder = { ...attemptData.orderData, orderId };
+
+    sendOrderConfirmationEmail(confirmedOrder.userEmail, confirmedOrder).catch((emailError) => {
       console.error("Order confirmation email failed:", emailError);
+    });
+
+    sendOrderConfirmationWhatsApp(confirmedOrder.shippingAddress?.phone, confirmedOrder).catch((waError) => {
+      console.error("Order confirmation WhatsApp failed:", waError.message);
+    });
+
+    sendAdminNewOrderWhatsApp(confirmedOrder).catch((waError) => {
+      console.error("Admin new order WhatsApp failed:", waError.message);
     });
 
     res.json({ success: true, orderId });
@@ -183,11 +191,18 @@ exports.placeCod = async (req, res) => {
       },
     });
 
-    sendOrderConfirmationEmail(canonicalOrder.userEmail, {
-      ...canonicalOrder,
-      orderId,
-    }).catch((emailError) => {
+    const codOrder = { ...canonicalOrder, orderId };
+
+    sendOrderConfirmationEmail(codOrder.userEmail, codOrder).catch((emailError) => {
       console.error("COD confirmation email failed:", emailError);
+    });
+
+    sendOrderConfirmationWhatsApp(codOrder.shippingAddress?.phone, codOrder).catch((waError) => {
+      console.error("COD order WhatsApp failed:", waError.message);
+    });
+
+    sendAdminNewOrderWhatsApp(codOrder).catch((waError) => {
+      console.error("Admin COD order WhatsApp failed:", waError.message);
     });
 
     res.json({

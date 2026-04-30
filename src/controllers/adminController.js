@@ -9,6 +9,7 @@ const {
   generateMultiPageBulkCatalogue 
 } = require("../services/catalogueService");
 const shippingService = require("../services/shippingService");
+const { sendOrderDeliveredWhatsApp, sendOrderCancelledWhatsApp } = require("../services/whatsappService");
 const puppeteer = require("puppeteer");
 const { PDFDocument } = require("pdf-lib");
 
@@ -457,6 +458,20 @@ exports.updateOrder = async (req, res) => {
     };
     if (req.body.expectedDeliveryDate) updateData.expectedDeliveryDate = req.body.expectedDeliveryDate;
     await orderRef.update(updateData);
+
+    // WhatsApp notification on terminal statuses
+    const orderData = { id: req.params.id, ...orderSnap.data() };
+    if (nextStatus === "delivered") {
+      sendOrderDeliveredWhatsApp(orderData.shippingAddress?.phone, orderData).catch((err) => {
+        console.error("Delivered WhatsApp failed:", err.message);
+      });
+    }
+    if (nextStatus === "cancelled") {
+      sendOrderCancelledWhatsApp(orderData.shippingAddress?.phone, orderData).catch((err) => {
+        console.error("Cancelled WhatsApp failed:", err.message);
+      });
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -552,6 +567,12 @@ exports.cancelOrder = async (req, res) => {
     }
 
     await orderRef.update(updatePayload);
+
+    // WhatsApp notification for cancellation
+    const orderForWa = { id: req.params.id, ...order };
+    sendOrderCancelledWhatsApp(order.shippingAddress?.phone, orderForWa).catch((err) => {
+      console.error("Cancel WhatsApp failed:", err.message);
+    });
 
     res.json({
       success: true,

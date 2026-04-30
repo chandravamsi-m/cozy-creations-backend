@@ -25,6 +25,7 @@
     "pdf-lib": "^1.17.1",
     "puppeteer": "^24.37.1",
     "razorpay": "^2.9.6",
-    "resend": "^6.6.0"
+    "resend": "^6.6.0",
+    "twilio": "^6.0.0"
   }
 }
