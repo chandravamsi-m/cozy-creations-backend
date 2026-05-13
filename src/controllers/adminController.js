@@ -28,6 +28,7 @@ const ALLOWED_PRODUCT_FIELDS = [
   "altText",
   "imageUrl",
   "thumbnailUrl",
+  "images",
   "isActive",
   "bulkPricingTiers",
 ];
@@ -61,6 +62,8 @@ async function normalizeProductPayload(inputProduct, existingProduct = null) {
   if (inputProduct.imageBuffer && typeof inputProduct.imageBuffer === "string" && inputProduct.imageBuffer.startsWith("data:image")) {
     const uploadResult = await cloudinary.uploader.upload(inputProduct.imageBuffer, {
       folder: "cozy-creations/products",
+      format: "webp",
+      quality: "auto",
     });
     payload.imageUrl = uploadResult.secure_url;
     payload.thumbnailUrl = uploadResult.secure_url;
@@ -70,6 +73,12 @@ async function normalizeProductPayload(inputProduct, existingProduct = null) {
   payload.weightGrams = Number(payload.weightGrams) || 0;
   payload.quantityPack = Number(payload.quantityPack) || 1;
   payload.bulkPricingTiers = normalizeBulkPricingTiers(inputProduct);
+
+  if (Array.isArray(inputProduct.images)) {
+    payload.images = inputProduct.images
+      .filter(url => typeof url === 'string' && url.startsWith('http'))
+      .slice(0, 5);
+  }
 
   if (!payload.altText && (payload.name || existingProduct?.name)) {
     payload.altText = payload.name || existingProduct?.name;
@@ -316,13 +325,17 @@ exports.permanentDeleteProduct = async (req, res) => {
   try {
     const productDoc = await db.collection("products").doc(req.params.id).get();
     if (productDoc.exists) {
-      const { imageUrl } = productDoc.data();
-      if (imageUrl) {
+      const { imageUrl, images } = productDoc.data();
+      const urlsToDelete = new Set();
+      if (imageUrl) urlsToDelete.add(imageUrl);
+      if (Array.isArray(images)) images.forEach(url => { if (url) urlsToDelete.add(url); });
+      
+      for (const url of urlsToDelete) {
         try {
-          const publicId = extractCloudinaryPublicId(imageUrl);
+          const publicId = extractCloudinaryPublicId(url);
           if (publicId) await cloudinary.uploader.destroy(publicId);
         } catch (cloudinaryError) {
-          console.error(`❌ Cloudinary deletion failed:`, cloudinaryError.message);
+          console.error(`❌ Cloudinary deletion failed for ${url}:`, cloudinaryError.message);
         }
       }
     }

@@ -31,6 +31,13 @@ function normaliseIndianPhone(raw) {
  * Silently fails if phone is missing/invalid or Twilio errors.
  */
 async function sendWhatsApp(to, body) {
+  // Feature Flag: Skip if disabled in .env
+  if (process.env.ENABLE_WHATSAPP_NOTIFICATIONS !== "true") {
+    // We log it so developers know why it didn't send during testing
+    console.log("ℹ️ WhatsApp Notification skipped (Feature disabled in .env)");
+    return;
+  }
+
   if (!to || !FROM) return;
 
   const e164 = normaliseIndianPhone(to);
