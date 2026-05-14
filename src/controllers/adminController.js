@@ -69,10 +69,18 @@ async function normalizeProductPayload(inputProduct, existingProduct = null) {
     payload.thumbnailUrl = uploadResult.secure_url;
   }
 
-  payload.price = Number(payload.price) || 0;
-  payload.weightGrams = Number(payload.weightGrams) || 0;
-  payload.quantityPack = Number(payload.quantityPack) || 1;
-  payload.bulkPricingTiers = normalizeBulkPricingTiers(inputProduct);
+  if (Object.prototype.hasOwnProperty.call(inputProduct, "price")) {
+    payload.price = Number(inputProduct.price) || 0;
+  }
+  if (Object.prototype.hasOwnProperty.call(inputProduct, "weightGrams")) {
+    payload.weightGrams = Number(inputProduct.weightGrams) || 0;
+  }
+  if (Object.prototype.hasOwnProperty.call(inputProduct, "quantityPack")) {
+    payload.quantityPack = Number(inputProduct.quantityPack) || 1;
+  }
+  if (Object.prototype.hasOwnProperty.call(inputProduct, "bulkPricingTiers") || Object.prototype.hasOwnProperty.call(inputProduct, "bulkPricing")) {
+    payload.bulkPricingTiers = normalizeBulkPricingTiers(inputProduct);
+  }
 
   if (Array.isArray(inputProduct.images)) {
     payload.images = inputProduct.images
@@ -297,7 +305,36 @@ exports.updateProduct = async (req, res) => {
     const currentSnap = await productRef.get();
     if (!currentSnap.exists) return res.status(404).json({ error: "Product not found" });
 
-    const normalizedProduct = await normalizeProductPayload(req.body.product, currentSnap.data());
+    const oldData = currentSnap.data();
+    const normalizedProduct = await normalizeProductPayload(req.body.product, oldData);
+
+    // Image Cleanup Logic: Find removed images and destroy them in Cloudinary
+    const oldUrls = new Set();
+    if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
+    if (Array.isArray(oldData.images)) {
+      oldData.images.forEach(url => { if (url) oldUrls.add(url); });
+    }
+
+    const newUrls = new Set();
+    if (normalizedProduct.imageUrl) newUrls.add(normalizedProduct.imageUrl);
+    if (Array.isArray(normalizedProduct.images)) {
+      normalizedProduct.images.forEach(url => { if (url) newUrls.add(url); });
+    }
+
+    // Identify URLs that are no longer in use for this product
+    const removedUrls = [...oldUrls].filter(url => !newUrls.has(url));
+
+    // Parallelize Cloudinary deletions to improve performance
+    await Promise.all(removedUrls.map(async (url) => {
+      try {
+        const publicId = extractCloudinaryPublicId(url);
+        if (publicId) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (cleanupErr) {
+        console.error(`Failed to cleanup orphaned image ${url}:`, cleanupErr.message);
+      }
+    }));
 
     await productRef.update({
       ...normalizedProduct,
@@ -330,14 +367,15 @@ exports.permanentDeleteProduct = async (req, res) => {
       if (imageUrl) urlsToDelete.add(imageUrl);
       if (Array.isArray(images)) images.forEach(url => { if (url) urlsToDelete.add(url); });
       
-      for (const url of urlsToDelete) {
+      // Parallelize Cloudinary deletions to improve performance
+      await Promise.all([...urlsToDelete].map(async (url) => {
         try {
           const publicId = extractCloudinaryPublicId(url);
           if (publicId) await cloudinary.uploader.destroy(publicId);
         } catch (cloudinaryError) {
           console.error(`❌ Cloudinary deletion failed for ${url}:`, cloudinaryError.message);
         }
-      }
+      }));
     }
     await db.collection("products").doc(req.params.id).delete();
     res.json({ success: true });
@@ -345,6 +383,7 @@ exports.permanentDeleteProduct = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
 
 // --- Offers ---
 
@@ -393,7 +432,22 @@ exports.updateOffer = async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
     
-    await db.collection("settings").doc("offerBanner").set(offerData, { merge: true });
+    const offerRef = db.collection("settings").doc("offerBanner");
+    const currentSnap = await offerRef.get();
+    
+    if (currentSnap.exists) {
+      const oldBannerUrl = currentSnap.data().bannerImageUrl;
+      if (oldBannerUrl && oldBannerUrl !== bannerImageUrl) {
+        try {
+          const publicId = extractCloudinaryPublicId(oldBannerUrl);
+          if (publicId) await cloudinary.uploader.destroy(publicId);
+        } catch (cleanupErr) {
+          console.error("Failed to cleanup old banner image:", cleanupErr.message);
+        }
+      }
+    }
+    
+    await offerRef.set(offerData, { merge: true });
     res.json({ success: true, offer: offerData });
   } catch (err) {
     res.status(500).json({ error: err.message });
