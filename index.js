@@ -26,8 +26,13 @@ app.use(cors({
     if (!origin) return callback(null, true);
     // Allow any localhost port for local development
     if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
-    // Allow production domains
-    const allowed = ["https://cozycreations.in", "https://www.cozycreations.in"];
+    // Allow production domains and default Firebase hosting domains
+    const allowed = [
+      "https://cozycreations.in", 
+      "https://www.cozycreations.in",
+      "https://cozy-creations-32109.web.app",
+      "https://cozy-creations-32109.firebaseapp.com"
+    ];
     if (allowed.includes(origin)) return callback(null, true);
     callback(new Error(`CORS blocked: ${origin}`));
   },
