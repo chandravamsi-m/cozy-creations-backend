@@ -88,14 +88,10 @@ function offerAppliesToProduct(offer, product) {
   return false;
 }
 
-function computeDiscountedUnitPrice(product, offer) {
+function computeSingleOfferDiscount(product, offer) {
   const originalPrice = toCurrency(product.price);
   if (!offerAppliesToProduct(offer, product)) {
-    return {
-      originalPrice,
-      price: originalPrice,
-      discountPerUnit: 0,
-    };
+    return { originalPrice, price: originalPrice, discountPerUnit: 0 };
   }
 
   let discountAmount = 0;
@@ -106,11 +102,22 @@ function computeDiscountedUnitPrice(product, offer) {
   }
 
   const price = Math.max(0, originalPrice - discountAmount);
-  return {
-    originalPrice,
-    price,
-    discountPerUnit: Math.max(0, originalPrice - price),
-  };
+  return { originalPrice, price, discountPerUnit: Math.max(0, originalPrice - price) };
+}
+
+// Best Price Wins: iterate all active offers, apply the one with the maximum discount
+function computeDiscountedUnitPrice(product, offers) {
+  const originalPrice = toCurrency(product.price);
+  const offersList = Array.isArray(offers) ? offers : (offers ? [offers] : []);
+
+  let bestResult = { originalPrice, price: originalPrice, discountPerUnit: 0 };
+  for (const offer of offersList) {
+    const result = computeSingleOfferDiscount(product, offer);
+    if (result.discountPerUnit > bestResult.discountPerUnit) {
+      bestResult = result;
+    }
+  }
+  return bestResult;
 }
 
 function chooseSurfaceCourier(allCouriers) {
@@ -135,12 +142,22 @@ function chooseSurfaceCourier(allCouriers) {
   }, null);
 }
 
-async function fetchSettingsAndOffer() {
-  const [deliveryDoc, paymentDoc, offerDoc] = await Promise.all([
+async function fetchSettingsAndOffers() {
+  const [deliveryDoc, paymentDoc, offersSnapshot] = await Promise.all([
     db.collection("settings").doc("delivery").get(),
     db.collection("settings").doc("payment").get(),
-    db.collection("settings").doc("offerBanner").get(),
+    db.collection("offers").where("isActive", "==", true).get(),
   ]);
+
+  let offers = offersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+  // Legacy fallback: if no offers in new collection, try old offerBanner
+  if (offers.length === 0) {
+    const legacyDoc = await db.collection("settings").doc("offerBanner").get();
+    if (legacyDoc.exists && legacyDoc.data().isActive) {
+      offers = [{ id: "legacy", ...legacyDoc.data() }];
+    }
+  }
 
   return {
     delivery: deliveryDoc.exists
@@ -149,7 +166,7 @@ async function fetchSettingsAndOffer() {
     payment: paymentDoc.exists
       ? paymentDoc.data()
       : { isCodEnabled: true, isPlatformFeeEnabled: false, platformFee: 0 },
-    offer: offerDoc.exists ? offerDoc.data() : null,
+    offers,
   };
 }
 
@@ -235,7 +252,7 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
     throw createError(400, "Customer details are required", "INVALID_CUSTOMER");
   }
 
-  const { delivery, payment, offer } = await fetchSettingsAndOffer();
+  const { delivery, payment, offers } = await fetchSettingsAndOffers();
   if (paymentMethod === "cod" && payment?.isCodEnabled === false) {
     throw createError(400, "Cash on Delivery is currently unavailable", "COD_DISABLED");
   }
@@ -249,7 +266,7 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
       throw createError(400, `Product unavailable: ${requestedItem.productId}`, "PRODUCT_UNAVAILABLE");
     }
 
-    const pricing = computeDiscountedUnitPrice(product, offer);
+    const pricing = computeDiscountedUnitPrice(product, offers);
     return {
       productId: product.id,
       name: product.name || "Product",
@@ -299,7 +316,8 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
     courierName: shipping.courierName,
     paymentMethod,
     pricingSource: {
-      offerApplied: !!offer?.isActive && !!offer?.hasDiscount,
+      offerApplied: offers.some(o => o?.isActive && o?.hasDiscount),
+      offersCount: offers.length,
       shippingSource: shipping.shippingSource,
     },
   };

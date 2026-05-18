@@ -4,7 +4,7 @@ const router = express.Router();
 const offerController = require("../controllers/offerController");
 const productController = require("../controllers/productController");
 
-router.get("/active", offerController.getActiveOffer);
+router.get("/active", offerController.getActiveOffers);
 router.post("/calculate-discount", productController.calculateDiscount);
 
 module.exports = router;

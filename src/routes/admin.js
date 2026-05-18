@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 const adminController = require("../controllers/adminController");
 const settingsController = require("../controllers/settingsController");
+const offerController = require("../controllers/offerController");
 const { authenticateToken, isAdminUid } = require("../middleware/auth");
 
 // Middleware to ensure all /api/admin/* routes are admin-only
@@ -22,9 +23,11 @@ router.patch("/products/:id", adminController.updateProduct);
 router.delete("/products/:id", adminController.softDeleteProduct);
 router.delete("/products/:id/permanent", adminController.permanentDeleteProduct);
 
-// Offers
-router.get("/offers", adminController.getOffers);
-router.put("/offers", adminController.updateOffer);
+// Offers — full CRUD
+router.get("/offers", offerController.listAllOffers);
+router.post("/offers", offerController.createOffer);
+router.put("/offers/:offerId", offerController.updateOffer);
+router.delete("/offers/:offerId", offerController.deleteOffer);
 
 // Settings
 router.put("/settings/delivery", adminController.updateDeliverySettings);
