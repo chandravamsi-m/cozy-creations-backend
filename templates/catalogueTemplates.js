@@ -95,8 +95,14 @@ const buildBulkBadge = (product) => {
     // Dynamic font size based on tier count
     let fontSize = 17;
     if (tierCount === 1) fontSize = 24;
-    else if (tierCount === 2) fontSize = 21;
+    else if (tierCount === 2) fontSize = 19;
     else if (tierCount >= 4) fontSize = 14; // Smaller font for 4+ tiers
+
+    // Dynamic line-height: tighter for more tiers, looser for fewer
+    let lineHeight = 1.3;
+    if (tierCount === 1) lineHeight = 1.2;
+    else if (tierCount === 2) lineHeight = 1.4;
+    else if (tierCount >= 4) lineHeight = 1.2;
 
     const tierStrings = product.bulkPricingTiers.map((tier) => {
       // Clean format: "XX Pcs - YY/- per pc"
@@ -104,7 +110,7 @@ const buildBulkBadge = (product) => {
     });
 
     // Always display vertically
-    return `<div class="tiers-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: ${fontSize}px; line-height: 1.1;">
+    return `<div class="tiers-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: ${fontSize}px; line-height: ${lineHeight};">
       ${tierStrings.join('')}
     </div>`;
   }
@@ -1107,7 +1113,7 @@ function generateBulkTemplate1(products, collectionTitle) {
     .badge {
       background-color: var(--badge-bg);
       color: var(--text-dark);
-      padding: 0px 8px;
+      padding: 6px 8px;
       border-radius: 10px;
       font-weight: 100;
       font-size: 19px;
@@ -1115,12 +1121,11 @@ function generateBulkTemplate1(products, collectionTitle) {
       letter-spacing: 0.1px;
       margin-bottom: 6px;
       width: 100%;
-      height: 70px;
+      min-height: 70px;
       display: flex;
       align-items: center;
       justify-content: center;
       text-align: center;
-      overflow: hidden;
       word-wrap: break-word;
       font-family: 'Non Ophelie Display Trial', serif;
     }
@@ -1331,7 +1336,7 @@ function generateBulkTemplate2(products, collectionTitle) {
     .badge {
       background-color: var(--badge-bg);
       color: var(--text-dark);
-      padding: 0px 8px;
+      padding: 6px 8px;
       border-radius: 10px;
       font-weight: 100;
       font-size: 19px;
@@ -1339,12 +1344,11 @@ function generateBulkTemplate2(products, collectionTitle) {
       letter-spacing: 0.1px;
       margin-bottom: 6px;
       width: 100%;
-      height: 70px;
+      min-height: 70px;
       display: flex;
       align-items: center;
       justify-content: center;
       text-align: center;
-      overflow: hidden;
       word-wrap: break-word;
       font-family: 'Non Ophelie Display Trial', serif;
     }
