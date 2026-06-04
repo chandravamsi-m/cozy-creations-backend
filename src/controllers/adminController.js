@@ -464,13 +464,14 @@ exports.updateOffer = async (req, res) => {
 
 exports.updateDeliverySettings = async (req, res) => {
   try {
-    const { isActive, amount, freeDeliveryThreshold, message, isShippingFeeEnabled } = req.body;
+    const { isActive, amount, freeDeliveryThreshold, message, isShippingFeeEnabled, attarWeights } = req.body;
     const data = {
       isActive: !!isActive,
       amount: Number(amount) || 0,
       freeDeliveryThreshold: Number(freeDeliveryThreshold) || 0,
       message: message || "",
       isShippingFeeEnabled: isShippingFeeEnabled !== false,
+      attarWeights: attarWeights || {},
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
     await db.collection("settings").doc("delivery").set(data, { merge: true });
@@ -768,13 +769,14 @@ exports.generateBulkCatalogue = async (req, res) => {
 
 exports.updateDeliverySettings = async (req, res) => {
   try {
-    const { isActive, amount, freeDeliveryThreshold, message, isShippingFeeEnabled } = req.body;
+    const { isActive, amount, freeDeliveryThreshold, message, isShippingFeeEnabled, attarWeights } = req.body;
     const data = {
       isActive: !!isActive,
       amount: Number(amount) || 0,
       freeDeliveryThreshold: Number(freeDeliveryThreshold) || 0,
       message: message || "",
       isShippingFeeEnabled: isShippingFeeEnabled !== false,
+      attarWeights: attarWeights || {},
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
     await db.collection("settings").doc("delivery").set(data, { merge: true });
@@ -802,14 +804,28 @@ exports.updatePaymentSettings = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SCENTED STICKS
+// SCENTED STICKS (Dhoop Sticks / Agarbatti)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ALLOWED_SCENTED_STICK_FIELDS = [
-  "name", "category", "price", "weightGrams", "stickCount",
-  "burnTimeMinutes", "scentFamily", "ingredients", "altText",
-  "imageUrl", "thumbnailUrl", "images", "isActive", "bulkPricingTiers",
+  "name", "scentFamily", "burnTimeMinutes", "ingredients", "altText",
+  "imageUrl", "thumbnailUrl", "images", "isActive", "variants",
 ];
+
+// Default sizes for Dhoop Sticks
+const DEFAULT_DHOOP_SIZES = ["50g", "100g", "200g", "500g"];
+
+function normalizeScentedStickVariants(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((v) => ({
+      label: String(v.label || "").trim(),
+      price: Math.max(0, Number(v.price) || 0),
+      weightGrams: Math.max(0, Number(v.weightGrams) || 0),
+      isAvailable: v.isAvailable !== false,
+    }))
+    .filter((v) => v.label);
+}
 
 async function normalizeScentedStickPayload(input, existing = null) {
   if (!input || typeof input !== "object") throw new Error("Invalid scented stick payload");
@@ -824,12 +840,9 @@ async function normalizeScentedStickPayload(input, existing = null) {
     payload.imageUrl = uploadResult.secure_url;
     payload.thumbnailUrl = uploadResult.secure_url;
   }
-  if (Object.prototype.hasOwnProperty.call(input, "price")) payload.price = Number(input.price) || 0;
-  if (Object.prototype.hasOwnProperty.call(input, "weightGrams")) payload.weightGrams = Number(input.weightGrams) || 0;
-  if (Object.prototype.hasOwnProperty.call(input, "stickCount")) payload.stickCount = Number(input.stickCount) || 0;
   if (Object.prototype.hasOwnProperty.call(input, "burnTimeMinutes")) payload.burnTimeMinutes = Number(input.burnTimeMinutes) || 0;
-  if (Object.prototype.hasOwnProperty.call(input, "bulkPricingTiers") || Object.prototype.hasOwnProperty.call(input, "bulkPricing")) {
-    payload.bulkPricingTiers = normalizeBulkPricingTiers(input);
+  if (Object.prototype.hasOwnProperty.call(input, "variants")) {
+    payload.variants = normalizeScentedStickVariants(input.variants);
   }
   if (Array.isArray(input.images)) {
     payload.images = input.images.filter(u => typeof u === "string" && u.startsWith("http")).slice(0, 5);
@@ -915,11 +928,25 @@ exports.permanentDeleteScentedStick = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ALLOWED_PERFUME_FIELDS = [
-  "name", "category", "price", "weightGrams", "volumeMl",
-  "scentFamily", "scentNotes", "longevityHours", "concentration",
+  "name", "scentFamily", "scentNotes", "longevityHours",
   "isAlcoholFree", "ingredients", "altText", "imageUrl",
-  "thumbnailUrl", "images", "isActive", "bulkPricingTiers",
+  "thumbnailUrl", "images", "isActive", "variants",
 ];
+
+// Default sizes for Attar
+const DEFAULT_ATTAR_SIZES = ["3ml", "6ml", "9ml", "12ml", "25ml", "50ml", "100ml"];
+
+function normalizePerfumeVariants(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((v) => ({
+      label: String(v.label || "").trim(),
+      price: Math.max(0, Number(v.price) || 0),
+      weightGrams: Math.max(0, Number(v.weightGrams) || 0),
+      isAvailable: v.isAvailable !== false,
+    }))
+    .filter((v) => v.label);
+}
 
 async function normalizePerfumePayload(input, existing = null) {
   if (!input || typeof input !== "object") throw new Error("Invalid perfume payload");
@@ -934,9 +961,6 @@ async function normalizePerfumePayload(input, existing = null) {
     payload.imageUrl = uploadResult.secure_url;
     payload.thumbnailUrl = uploadResult.secure_url;
   }
-  if (Object.prototype.hasOwnProperty.call(input, "price")) payload.price = Number(input.price) || 0;
-  if (Object.prototype.hasOwnProperty.call(input, "weightGrams")) payload.weightGrams = Number(input.weightGrams) || 0;
-  if (Object.prototype.hasOwnProperty.call(input, "volumeMl")) payload.volumeMl = Number(input.volumeMl) || 0;
   if (Object.prototype.hasOwnProperty.call(input, "longevityHours")) payload.longevityHours = Number(input.longevityHours) || 0;
   if (Object.prototype.hasOwnProperty.call(input, "isAlcoholFree")) payload.isAlcoholFree = !!input.isAlcoholFree;
   if (input.scentNotes && typeof input.scentNotes === "object") {
@@ -946,8 +970,8 @@ async function normalizePerfumePayload(input, existing = null) {
       base: String(input.scentNotes.base || "").trim(),
     };
   }
-  if (Object.prototype.hasOwnProperty.call(input, "bulkPricingTiers") || Object.prototype.hasOwnProperty.call(input, "bulkPricing")) {
-    payload.bulkPricingTiers = normalizeBulkPricingTiers(input);
+  if (Object.prototype.hasOwnProperty.call(input, "variants")) {
+    payload.variants = normalizePerfumeVariants(input.variants);
   }
   if (Array.isArray(input.images)) {
     payload.images = input.images.filter(u => typeof u === "string" && u.startsWith("http")).slice(0, 5);

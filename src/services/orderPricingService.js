@@ -1,6 +1,12 @@
 const { db } = require("../config/firebase");
 const shippingService = require("./shippingService");
 
+// Standard shipping weight for Attar & Dhoop Stick variants.
+// Shiprocket bills in 500g slabs, so one fixed weight covers all variants
+// (e.g., a 3ml attar bottle and a 100ml bottle are both under 500g including packaging).
+// In the future this can be made configurable via admin settings.
+const DEFAULT_VARIANT_SHIPPING_WEIGHT_GRAMS = 500;
+
 function createError(status, message, code) {
   const err = new Error(message);
   err.status = status;
@@ -82,6 +88,7 @@ function normalizeRequestedItems(items) {
       productId: item.productId,
       quantity,
       productType,
+      variantLabel: item.variantLabel ? String(item.variantLabel).trim() : null,
       customization: item.customization || null,
     };
   });
@@ -296,25 +303,79 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
       throw createError(400, `Product unavailable: ${requestedItem.productId}`, "PRODUCT_UNAVAILABLE");
     }
 
-    const pricing = computeDiscountedUnitPrice(product, offers);
+    // --- Variant-aware price resolution ---
+    // For Attar / Dhoop Sticks that use the variants array:
+    const { variantLabel } = requestedItem;
+    
+    let defaultWeightForType = DEFAULT_VARIANT_SHIPPING_WEIGHT_GRAMS;
+    if (variantLabel) {
+      if (requestedItem.productType === "perfume" && delivery?.attarWeights?.[variantLabel]) {
+        defaultWeightForType = Number(delivery.attarWeights[variantLabel]);
+      } else if (requestedItem.productType === "scented-stick") {
+        const parsedWeight = parseInt(variantLabel.replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(parsedWeight) && parsedWeight > 0) {
+          defaultWeightForType = parsedWeight;
+        }
+      }
+    }
+
+    let resolvedPrice = null;
+    let resolvedWeightGrams = Number(product.weightGrams) || defaultWeightForType;
+
+    if (variantLabel && Array.isArray(product.variants) && product.variants.length > 0) {
+      const variant = product.variants.find((v) => v.label === variantLabel);
+      if (variant) {
+        resolvedPrice = toCurrency(variant.price);
+        // Use variant.weightGrams if explicitly set, otherwise use the configured standard size weight
+        resolvedWeightGrams = Number(variant.weightGrams) || defaultWeightForType;
+      }
+    }
+
+    // Fallback: use flat product.price (candles, or old-schema non-candle items)
+    if (resolvedPrice === null) {
+      const pricing = computeDiscountedUnitPrice(product, offers);
+      return {
+        productId: product.id,
+        name: product.name || "Product",
+        quantity: requestedItem.quantity,
+        price: pricing.price,
+        originalPrice: pricing.originalPrice,
+        discountPerUnit: pricing.discountPerUnit,
+        image: product.thumbnailUrl || product.imageUrl || "",
+        imageUrl: product.imageUrl || "",
+        thumbnailUrl: product.thumbnailUrl || product.imageUrl || "",
+        category: product.category || null,
+        productType: requestedItem.productType,
+        variantLabel: variantLabel || null,
+        weightGrams: resolvedWeightGrams,
+        dimensions: product.dimensions || null,
+        quantityPack: Number(product.quantityPack) || 1,
+        customization: requestedItem.customization || null,
+        lineTotal: pricing.price * requestedItem.quantity,
+        lineOriginalTotal: pricing.originalPrice * requestedItem.quantity,
+      };
+    }
+
+    // Variant-based item: no offer discounts (variant price is the final price)
     return {
       productId: product.id,
       name: product.name || "Product",
       quantity: requestedItem.quantity,
-      price: pricing.price,
-      originalPrice: pricing.originalPrice,
-      discountPerUnit: pricing.discountPerUnit,
+      price: resolvedPrice,
+      originalPrice: resolvedPrice,
+      discountPerUnit: 0,
       image: product.thumbnailUrl || product.imageUrl || "",
       imageUrl: product.imageUrl || "",
       thumbnailUrl: product.thumbnailUrl || product.imageUrl || "",
       category: product.category || null,
       productType: requestedItem.productType,
-      weightGrams: Number(product.weightGrams) || 0,
+      variantLabel: variantLabel,
+      weightGrams: resolvedWeightGrams,
       dimensions: product.dimensions || null,
       quantityPack: Number(product.quantityPack) || 1,
       customization: requestedItem.customization || null,
-      lineTotal: pricing.price * requestedItem.quantity,
-      lineOriginalTotal: pricing.originalPrice * requestedItem.quantity,
+      lineTotal: resolvedPrice * requestedItem.quantity,
+      lineOriginalTotal: resolvedPrice * requestedItem.quantity,
     };
   });
 
