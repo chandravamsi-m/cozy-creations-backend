@@ -33,6 +33,7 @@ router.delete("/offers/:offerId", offerController.deleteOffer);
 router.put("/settings/delivery", adminController.updateDeliverySettings);
 router.put("/settings/payment", adminController.updatePaymentSettings);
 router.put("/settings/packaging", settingsController.updatePackagingSettings);
+router.put("/settings/announcement-strip", settingsController.updateAnnouncementStrip);
 
 // Orders
 router.get("/orders", adminController.getOrders);

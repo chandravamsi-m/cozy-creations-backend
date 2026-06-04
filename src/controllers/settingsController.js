@@ -58,12 +58,57 @@ exports.updatePackagingSettings = async (req, res) => {
   }
 };
 
+exports.getAnnouncementStrip = async (req, res) => {
+  try {
+    const doc = await db.collection("settings").doc("announcementStrip").get();
+    if (!doc.exists) {
+      return res.json({ announcementStrip: { isActive: false, messages: [] } });
+    }
+    res.json({ announcementStrip: doc.data() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.updateAnnouncementStrip = async (req, res) => {
+  try {
+    const { isActive, messages } = req.body;
+
+    if (typeof isActive !== "boolean") {
+      return res.status(400).json({ error: "isActive must be a boolean" });
+    }
+    if (!Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages must be an array" });
+    }
+
+    // Sanitize: each message must have an id (string) and text (non-empty string)
+    const sanitized = messages
+      .filter(m => m && typeof m.text === "string" && m.text.trim())
+      .map(m => ({
+        id: String(m.id || Date.now() + Math.random()),
+        text: String(m.text).trim().slice(0, 200), // max 200 chars per message
+      }));
+
+    const data = {
+      isActive: !!isActive,
+      messages: sanitized,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await db.collection("settings").doc("announcementStrip").set(data);
+    res.json({ success: true, announcementStrip: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.getPublicSettings = async (req, res) => {
   try {
-    const [deliveryDoc, paymentDoc, offerDoc] = await Promise.all([
+    const [deliveryDoc, paymentDoc, offerDoc, stripDoc] = await Promise.all([
       db.collection("settings").doc("delivery").get(),
       db.collection("settings").doc("payment").get(),
       db.collection("settings").doc("offerBanner").get(),
+      db.collection("settings").doc("announcementStrip").get(),
     ]);
 
     const deliveryData = deliveryDoc.exists ? deliveryDoc.data() : { isActive: false, amount: 0, freeDeliveryThreshold: 0, isShippingFeeEnabled: true };
@@ -76,7 +121,8 @@ exports.getPublicSettings = async (req, res) => {
     res.json({
       delivery: deliveryData,
       payment: paymentDoc.exists ? paymentDoc.data() : { isCodEnabled: true, isPlatformFeeEnabled: false, platformFee: 0 },
-      offer: offerDoc.exists ? offerDoc.data() : { isActive: false }
+      offer: offerDoc.exists ? offerDoc.data() : { isActive: false },
+      announcementStrip: stripDoc.exists ? stripDoc.data() : { isActive: false, messages: [] },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
