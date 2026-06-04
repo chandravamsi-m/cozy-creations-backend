@@ -72,9 +72,16 @@ function normalizeRequestedItems(items) {
       throw createError(400, "Invalid item quantity", "INVALID_ITEMS");
     }
 
+    // productType tells us which Firestore collection to look up:
+    // 'candle' → products, 'scented-stick' → scented-sticks, 'perfume' → perfumes
+    const productType = ["candle", "scented-stick", "perfume"].includes(item.productType)
+      ? item.productType
+      : "candle"; // default to candle for backward compatibility
+
     return {
       productId: item.productId,
       quantity,
+      productType,
       customization: item.customization || null,
     };
   });
@@ -170,17 +177,40 @@ async function fetchSettingsAndOffers() {
   };
 }
 
-async function fetchProductsMap(productIds) {
-  const productDocs = await Promise.all(
-    productIds.map((productId) => db.collection("products").doc(productId).get())
-  );
+// Map productType to its Firestore collection name
+function getCollectionForType(productType) {
+  switch (productType) {
+    case "scented-stick": return "scented-sticks";
+    case "perfume":        return "perfumes";
+    default:              return "products"; // 'candle' and legacy
+  }
+}
+
+async function fetchProductsMap(items) {
+  // Group items by their collection so we batch per collection
+  const byCollection = {};
+  for (const item of items) {
+    const col = getCollectionForType(item.productType);
+    if (!byCollection[col]) byCollection[col] = [];
+    byCollection[col].push(item.productId);
+  }
 
   const productsMap = new Map();
-  productDocs.forEach((docSnap) => {
-    if (docSnap.exists) {
-      productsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-    }
-  });
+
+  await Promise.all(
+    Object.entries(byCollection).map(async ([col, ids]) => {
+      const uniqueIds = [...new Set(ids)];
+      const docSnaps = await Promise.all(
+        uniqueIds.map((id) => db.collection(col).doc(id).get())
+      );
+      docSnaps.forEach((docSnap) => {
+        if (docSnap.exists) {
+          productsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+        }
+      });
+    })
+  );
+
   return productsMap;
 }
 
@@ -258,7 +288,7 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
   }
 
   const productIds = [...new Set(items.map((item) => item.productId))];
-  const productsMap = await fetchProductsMap(productIds);
+  const productsMap = await fetchProductsMap(items);
 
   const canonicalItems = items.map((requestedItem) => {
     const product = productsMap.get(requestedItem.productId);
@@ -278,6 +308,7 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
       imageUrl: product.imageUrl || "",
       thumbnailUrl: product.thumbnailUrl || product.imageUrl || "",
       category: product.category || null,
+      productType: requestedItem.productType,
       weightGrams: Number(product.weightGrams) || 0,
       dimensions: product.dimensions || null,
       quantityPack: Number(product.quantityPack) || 1,
