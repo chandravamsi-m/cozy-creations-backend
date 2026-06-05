@@ -808,7 +808,7 @@ exports.updatePaymentSettings = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ALLOWED_SCENTED_STICK_FIELDS = [
-  "name", "scentFamily", "burnTimeMinutes", "ingredients", "altText",
+  "name", "scentFamily", "ingredients", "altText",
   "imageUrl", "thumbnailUrl", "images", "isActive", "variants",
 ];
 
@@ -840,7 +840,7 @@ async function normalizeScentedStickPayload(input, existing = null) {
     payload.imageUrl = uploadResult.secure_url;
     payload.thumbnailUrl = uploadResult.secure_url;
   }
-  if (Object.prototype.hasOwnProperty.call(input, "burnTimeMinutes")) payload.burnTimeMinutes = Number(input.burnTimeMinutes) || 0;
+
   if (Object.prototype.hasOwnProperty.call(input, "variants")) {
     payload.variants = normalizeScentedStickVariants(input.variants);
   }
@@ -982,7 +982,7 @@ async function normalizePerfumePayload(input, existing = null) {
 
 exports.getPerfumes = async (req, res) => {
   try {
-    const snap = await db.collection("perfumes").orderBy("updatedAt", "desc").get();
+    const snap = await db.collection("perfumes").orderBy("createdAt", "desc").get();
     res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
