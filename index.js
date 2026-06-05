@@ -33,7 +33,9 @@ app.use(cors({
       "https://cozycreations.in", 
       "https://www.cozycreations.in",
       "https://cozy-creations-32109.web.app",
-      "https://cozy-creations-32109.firebaseapp.com"
+      "https://cozy-creations-32109.firebaseapp.com",
+      "https://test-cozycreations.web.app",
+      "https://test-cozycreations.firebaseapp.com"
     ];
     if (allowed.includes(origin)) return callback(null, true);
     callback(new Error(`CORS blocked: ${origin}`));
