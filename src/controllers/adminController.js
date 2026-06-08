@@ -13,6 +13,22 @@ const { sendOrderDeliveredWhatsApp, sendOrderCancelledWhatsApp } = require("../s
 const puppeteer = require("puppeteer");
 const { PDFDocument } = require("pdf-lib");
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function isImageInUse(url, excludeProductId = null) {
+  const collections = ["products", "scented-sticks", "perfumes"];
+  for (const col of collections) {
+    const snap1 = await db.collection(col).where("imageUrl", "==", url).limit(2).get();
+    for (const doc of snap1.docs) if (doc.id !== excludeProductId) return true;
+    
+    const snap2 = await db.collection(col).where("images", "array-contains", url).limit(2).get();
+    for (const doc of snap2.docs) if (doc.id !== excludeProductId) return true;
+  }
+  return false;
+}
+
 const ALLOWED_PRODUCT_FIELDS = [
   "name",
   "category",
@@ -314,33 +330,41 @@ exports.updateProduct = async (req, res) => {
     const oldData = currentSnap.data();
     const normalizedProduct = await normalizeProductPayload(req.body.product, oldData);
 
-    // Image Cleanup Logic: Find removed images and destroy them in Cloudinary
-    const oldUrls = new Set();
-    if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
-    if (Array.isArray(oldData.images)) {
-      oldData.images.forEach(url => { if (url) oldUrls.add(url); });
-    }
+    // Image Cleanup Logic: Only run if the update payload explicitly contains image fields.
+    // If neither imageUrl nor images is present, it means no image change was made — skip cleanup.
+    const payloadHasImages = Object.prototype.hasOwnProperty.call(req.body.product, 'imageUrl') ||
+      Object.prototype.hasOwnProperty.call(req.body.product, 'images') ||
+      (req.body.product?.imageBuffer && typeof req.body.product.imageBuffer === 'string');
 
-    const newUrls = new Set();
-    if (normalizedProduct.imageUrl) newUrls.add(normalizedProduct.imageUrl);
-    if (Array.isArray(normalizedProduct.images)) {
-      normalizedProduct.images.forEach(url => { if (url) newUrls.add(url); });
-    }
-
-    // Identify URLs that are no longer in use for this product
-    const removedUrls = [...oldUrls].filter(url => !newUrls.has(url));
-
-    // Parallelize Cloudinary deletions to improve performance
-    await Promise.all(removedUrls.map(async (url) => {
-      try {
-        const publicId = extractCloudinaryPublicId(url);
-        if (publicId) {
-          await cloudinary.uploader.destroy(publicId);
-        }
-      } catch (cleanupErr) {
-        console.error(`Failed to cleanup orphaned image ${url}:`, cleanupErr.message);
+    if (payloadHasImages) {
+      const oldUrls = new Set();
+      if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
+      if (Array.isArray(oldData.images)) {
+        oldData.images.forEach(url => { if (url) oldUrls.add(url); });
       }
-    }));
+
+      const newUrls = new Set();
+      if (normalizedProduct.imageUrl) newUrls.add(normalizedProduct.imageUrl);
+      if (Array.isArray(normalizedProduct.images)) {
+        normalizedProduct.images.forEach(url => { if (url) newUrls.add(url); });
+      }
+
+      // Identify URLs that are no longer in use for this product
+      const removedUrls = [...oldUrls].filter(url => !newUrls.has(url));
+
+      // Parallelize Cloudinary deletions to improve performance
+      await Promise.all(removedUrls.map(async (url) => {
+        try {
+          if (await isImageInUse(url, req.params.id)) return;
+          const publicId = extractCloudinaryPublicId(url);
+          if (publicId) {
+            await cloudinary.uploader.destroy(publicId);
+          }
+        } catch (cleanupErr) {
+          console.error(`Failed to cleanup orphaned image ${url}:`, cleanupErr.message);
+        }
+      }));
+    }
 
     await productRef.update({
       ...normalizedProduct,
@@ -376,10 +400,11 @@ exports.permanentDeleteProduct = async (req, res) => {
       // Parallelize Cloudinary deletions to improve performance
       await Promise.all([...urlsToDelete].map(async (url) => {
         try {
+          if (await isImageInUse(url, req.params.id)) return;
           const publicId = extractCloudinaryPublicId(url);
           if (publicId) await cloudinary.uploader.destroy(publicId);
-        } catch (cloudinaryError) {
-          console.error(`❌ Cloudinary deletion failed for ${url}:`, cloudinaryError.message);
+        } catch (cleanupErr) {
+          console.error("Failed to cleanup image on permanent delete:", cleanupErr.message);
         }
       }));
     }
@@ -880,17 +905,29 @@ exports.updateScentedStick = async (req, res) => {
     if (!snap.exists) return res.status(404).json({ error: "Scented stick not found" });
     const oldData = snap.data();
     const normalized = await normalizeScentedStickPayload(req.body.product, oldData);
-    const oldUrls = new Set();
-    if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
-    if (Array.isArray(oldData.images)) oldData.images.forEach(u => { if (u) oldUrls.add(u); });
-    const newUrls = new Set();
-    if (normalized.imageUrl) newUrls.add(normalized.imageUrl);
-    if (Array.isArray(normalized.images)) normalized.images.forEach(u => { if (u) newUrls.add(u); });
-    const removedUrls = [...oldUrls].filter(u => !newUrls.has(u));
-    await Promise.all(removedUrls.map(async (url) => {
-      try { const pid = extractCloudinaryPublicId(url); if (pid) await cloudinary.uploader.destroy(pid); }
-      catch (e) { console.error("Cloudinary cleanup failed:", e.message); }
-    }));
+
+    // Only run image cleanup if the update actually contains image fields
+    const payloadHasImages = Object.prototype.hasOwnProperty.call(req.body.product, 'imageUrl') ||
+      Object.prototype.hasOwnProperty.call(req.body.product, 'images') ||
+      (req.body.product?.imageBuffer && typeof req.body.product.imageBuffer === 'string');
+
+    if (payloadHasImages) {
+      const oldUrls = new Set();
+      if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
+      if (Array.isArray(oldData.images)) oldData.images.forEach(u => { if (u) oldUrls.add(u); });
+      const newUrls = new Set();
+      if (normalized.imageUrl) newUrls.add(normalized.imageUrl);
+      if (Array.isArray(normalized.images)) normalized.images.forEach(u => { if (u) newUrls.add(u); });
+      const removedUrls = [...oldUrls].filter(u => !newUrls.has(u));
+      await Promise.all(removedUrls.map(async (url) => {
+        try {
+          if (await isImageInUse(url, req.params.id)) return;
+          const pid = extractCloudinaryPublicId(url);
+          if (pid) await cloudinary.uploader.destroy(pid);
+        } catch (e) { console.error("Cloudinary cleanup failed:", e.message); }
+      }));
+    }
+
     await ref.update({ ...normalized, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -914,8 +951,11 @@ exports.permanentDeleteScentedStick = async (req, res) => {
       if (imageUrl) urlsToDelete.add(imageUrl);
       if (Array.isArray(images)) images.forEach(u => { if (u) urlsToDelete.add(u); });
       await Promise.all([...urlsToDelete].map(async (url) => {
-        try { const pid = extractCloudinaryPublicId(url); if (pid) await cloudinary.uploader.destroy(pid); }
-        catch (e) { console.error("Cloudinary deletion failed:", e.message); }
+        try {
+          if (await isImageInUse(url, req.params.id)) return;
+          const pid = extractCloudinaryPublicId(url);
+          if (pid) await cloudinary.uploader.destroy(pid);
+        } catch (e) { console.error("Cloudinary deletion failed:", e.message); }
       }));
     }
     await db.collection("scented-sticks").doc(req.params.id).delete();
@@ -1009,17 +1049,29 @@ exports.updatePerfume = async (req, res) => {
     if (!snap.exists) return res.status(404).json({ error: "Perfume not found" });
     const oldData = snap.data();
     const normalized = await normalizePerfumePayload(req.body.product, oldData);
-    const oldUrls = new Set();
-    if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
-    if (Array.isArray(oldData.images)) oldData.images.forEach(u => { if (u) oldUrls.add(u); });
-    const newUrls = new Set();
-    if (normalized.imageUrl) newUrls.add(normalized.imageUrl);
-    if (Array.isArray(normalized.images)) normalized.images.forEach(u => { if (u) newUrls.add(u); });
-    const removedUrls = [...oldUrls].filter(u => !newUrls.has(u));
-    await Promise.all(removedUrls.map(async (url) => {
-      try { const pid = extractCloudinaryPublicId(url); if (pid) await cloudinary.uploader.destroy(pid); }
-      catch (e) { console.error("Cloudinary cleanup failed:", e.message); }
-    }));
+
+    // Only run image cleanup if the update actually contains image fields
+    const payloadHasImages = Object.prototype.hasOwnProperty.call(req.body.product, 'imageUrl') ||
+      Object.prototype.hasOwnProperty.call(req.body.product, 'images') ||
+      (req.body.product?.imageBuffer && typeof req.body.product.imageBuffer === 'string');
+
+    if (payloadHasImages) {
+      const oldUrls = new Set();
+      if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
+      if (Array.isArray(oldData.images)) oldData.images.forEach(u => { if (u) oldUrls.add(u); });
+      const newUrls = new Set();
+      if (normalized.imageUrl) newUrls.add(normalized.imageUrl);
+      if (Array.isArray(normalized.images)) normalized.images.forEach(u => { if (u) newUrls.add(u); });
+      const removedUrls = [...oldUrls].filter(u => !newUrls.has(u));
+      await Promise.all(removedUrls.map(async (url) => {
+        try {
+          if (await isImageInUse(url, req.params.id)) return;
+          const pid = extractCloudinaryPublicId(url);
+          if (pid) await cloudinary.uploader.destroy(pid);
+        } catch (e) { console.error("Cloudinary cleanup failed:", e.message); }
+      }));
+    }
+
     await ref.update({ ...normalized, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1043,8 +1095,11 @@ exports.permanentDeletePerfume = async (req, res) => {
       if (imageUrl) urlsToDelete.add(imageUrl);
       if (Array.isArray(images)) images.forEach(u => { if (u) urlsToDelete.add(u); });
       await Promise.all([...urlsToDelete].map(async (url) => {
-        try { const pid = extractCloudinaryPublicId(url); if (pid) await cloudinary.uploader.destroy(pid); }
-        catch (e) { console.error("Cloudinary deletion failed:", e.message); }
+        try {
+          if (await isImageInUse(url, req.params.id)) return;
+          const pid = extractCloudinaryPublicId(url);
+          if (pid) await cloudinary.uploader.destroy(pid);
+        } catch (e) { console.error("Cloudinary deletion failed:", e.message); }
       }));
     }
     await db.collection("perfumes").doc(req.params.id).delete();
