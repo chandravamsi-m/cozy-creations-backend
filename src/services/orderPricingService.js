@@ -331,51 +331,31 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
       }
     }
 
-    // Fallback: use flat product.price (candles, or old-schema non-candle items)
-    if (resolvedPrice === null) {
-      const pricing = computeDiscountedUnitPrice(product, offers);
-      return {
-        productId: product.id,
-        name: product.name || "Product",
-        quantity: requestedItem.quantity,
-        price: pricing.price,
-        originalPrice: pricing.originalPrice,
-        discountPerUnit: pricing.discountPerUnit,
-        image: product.thumbnailUrl || product.imageUrl || "",
-        imageUrl: product.imageUrl || "",
-        thumbnailUrl: product.thumbnailUrl || product.imageUrl || "",
-        category: product.category || null,
-        productType: requestedItem.productType,
-        variantLabel: variantLabel || null,
-        weightGrams: resolvedWeightGrams,
-        dimensions: product.dimensions || null,
-        quantityPack: Number(product.quantityPack) || 1,
-        customization: requestedItem.customization || null,
-        lineTotal: pricing.price * requestedItem.quantity,
-        lineOriginalTotal: pricing.originalPrice * requestedItem.quantity,
-      };
+    if (resolvedPrice !== null) {
+      product.price = resolvedPrice;
     }
 
-    // Variant-based item: no offer discounts (variant price is the final price)
+    const pricing = computeDiscountedUnitPrice(product, offers);
+
     return {
       productId: product.id,
       name: product.name || "Product",
       quantity: requestedItem.quantity,
-      price: resolvedPrice,
-      originalPrice: resolvedPrice,
-      discountPerUnit: 0,
+      price: pricing.price,
+      originalPrice: pricing.originalPrice,
+      discountPerUnit: pricing.discountPerUnit,
       image: product.thumbnailUrl || product.imageUrl || "",
       imageUrl: product.imageUrl || "",
       thumbnailUrl: product.thumbnailUrl || product.imageUrl || "",
       category: product.category || null,
       productType: requestedItem.productType,
-      variantLabel: variantLabel,
+      variantLabel: variantLabel || null,
       weightGrams: resolvedWeightGrams,
       dimensions: product.dimensions || null,
       quantityPack: Number(product.quantityPack) || 1,
       customization: requestedItem.customization || null,
-      lineTotal: resolvedPrice * requestedItem.quantity,
-      lineOriginalTotal: resolvedPrice * requestedItem.quantity,
+      lineTotal: pricing.price * requestedItem.quantity,
+      lineOriginalTotal: pricing.originalPrice * requestedItem.quantity,
     };
   });
 
