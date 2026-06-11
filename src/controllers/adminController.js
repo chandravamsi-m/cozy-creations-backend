@@ -443,7 +443,7 @@ exports.updateOffer = async (req, res) => {
       isActive, offerText, offerHeading, email, phone,
       hasDiscount, discountType, discountValue,
       applicableToAll, applicableCategories, applicableProducts,
-      minCartValue, bannerImageUrl
+      bannerImageUrl
     } = req.body;
     
     const offerData = {
@@ -459,7 +459,6 @@ exports.updateOffer = async (req, res) => {
       applicableToAll: applicableToAll !== undefined ? applicableToAll : true,
       applicableCategories: applicableCategories || [],
       applicableProducts: applicableProducts || [],
-      minCartValue: minCartValue || 0,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
     

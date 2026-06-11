@@ -104,8 +104,13 @@ exports.createShiprocketOrder = async (orderData, packagingConfig = {}, courierI
     billing_phone: phone,
     shipping_is_billing: true,
     order_items: orderData.items.map(item => ({
-      name: item.name || "Product",
-      sku: item.productId || "SKU-" + Date.now(),
+      // Include variant label in name so admin packing slip shows correct size
+      name: item.variantLabel
+        ? `${item.name || "Product"} - ${item.variantLabel}`
+        : (item.name || "Product"),
+      sku: item.variantLabel
+        ? `${item.productId || "SKU"}-${item.variantLabel}`
+        : (item.productId || "SKU-" + Date.now()),
       units: item.quantity || 1,
       selling_price: item.price || 0,
       discount: 0,

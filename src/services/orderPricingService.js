@@ -105,7 +105,7 @@ function offerAppliesToProduct(offer, product) {
 function computeSingleOfferDiscount(product, offer) {
   const originalPrice = toCurrency(product.price);
   if (!offerAppliesToProduct(offer, product)) {
-    return { originalPrice, price: originalPrice, discountPerUnit: 0 };
+    return { originalPrice, price: originalPrice, discountPerUnit: 0, offerName: null };
   }
 
   let discountAmount = 0;
@@ -116,7 +116,7 @@ function computeSingleOfferDiscount(product, offer) {
   }
 
   const price = Math.max(0, originalPrice - discountAmount);
-  return { originalPrice, price, discountPerUnit: Math.max(0, originalPrice - price) };
+  return { originalPrice, price, discountPerUnit: Math.max(0, originalPrice - price), offerName: offer.offerHeading || offer.offerText || offer.id || null };
 }
 
 // Best Price Wins: iterate all active offers, apply the one with the maximum discount
@@ -124,7 +124,7 @@ function computeDiscountedUnitPrice(product, offers) {
   const originalPrice = toCurrency(product.price);
   const offersList = Array.isArray(offers) ? offers : (offers ? [offers] : []);
 
-  let bestResult = { originalPrice, price: originalPrice, discountPerUnit: 0 };
+  let bestResult = { originalPrice, price: originalPrice, discountPerUnit: 0, offerName: null };
   for (const offer of offersList) {
     const result = computeSingleOfferDiscount(product, offer);
     if (result.discountPerUnit > bestResult.discountPerUnit) {
@@ -344,6 +344,7 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
       price: pricing.price,
       originalPrice: pricing.originalPrice,
       discountPerUnit: pricing.discountPerUnit,
+      offerName: pricing.offerName || null,
       image: product.thumbnailUrl || product.imageUrl || "",
       imageUrl: product.imageUrl || "",
       thumbnailUrl: product.thumbnailUrl || product.imageUrl || "",
@@ -388,8 +389,13 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
     courierName: shipping.courierName,
     paymentMethod,
     pricingSource: {
-      offerApplied: offers.some(o => o?.isActive && o?.hasDiscount),
-      offersCount: offers.length,
+      offerApplied: discountTotal > 0,
+      appliedOffersCount: canonicalItems.filter(i => i.discountPerUnit > 0).length,
+      appliedOfferNames: [...new Set(
+        canonicalItems
+          .filter(i => i.offerName)
+          .map(i => i.offerName)
+      )],
       shippingSource: shipping.shippingSource,
     },
   };
