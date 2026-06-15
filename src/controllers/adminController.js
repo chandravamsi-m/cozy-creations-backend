@@ -581,6 +581,13 @@ exports.updateUser = async (req, res) => {
     const { email, password, displayName, role } = req.body;
     const updateData = {};
     if (password) {
+      const userRecord = await admin.auth().getUser(uid);
+      const isGoogleUser = userRecord.providerData.some(p => p.providerId === 'google.com');
+      
+      if (isGoogleUser) {
+        return res.status(400).json({ error: "Cannot set password for users registered via Google Sign-In." });
+      }
+
       const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])[A-Za-z\d!@#$%^&*(),.?":{}|<>]{8,}$/;
       if (!passwordRegex.test(password)) {
         return res.status(400).json({ error: "Password must be at least 8 characters long, and include uppercase, lowercase, a number, and a special character." });
