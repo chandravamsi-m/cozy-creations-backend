@@ -60,7 +60,8 @@ function formatItems(items = []) {
   return items
     .map((item) => {
       const lineTotal = (item.price * item.quantity).toLocaleString("en-IN");
-      return `  › ${item.name} × ${item.quantity}   ₹${lineTotal}`;
+      const variantSuffix = item.variantLabel ? ` (${item.variantLabel})` : "";
+      return `  › ${item.name}${variantSuffix} × ${item.quantity}   ₹${lineTotal}`;
     })
     .join("\n");
 }
@@ -98,7 +99,7 @@ ${DIVIDER}
 
 Dear ${name},
 
-Thank you for your order. We have successfully received it and our team is now preparing your handcrafted candles with love and care.
+Thank you for your order. We have successfully received it and our team is now preparing your handcrafted order with love and care.
 
 ${DIVIDER}
 📋 *Order Details*
@@ -146,7 +147,7 @@ Dear ${name},
 
 We are delighted to inform you that your order *#${orderId}* (₹${total}) has been successfully delivered to your address.
 
-We hope our candles bring warmth and joy to your space. ✨
+We hope our products bring warmth and joy to your space. ✨
 
 ${DIVIDER}
 💛 *Enjoyed your purchase?*

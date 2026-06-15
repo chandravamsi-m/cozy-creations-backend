@@ -10,6 +10,8 @@ const { prefetchCatalogueAssets } = require("./src/services/catalogueService");
 const adminRoutes = require("./src/routes/admin");
 const orderRoutes = require("./src/routes/orders");
 const productRoutes = require("./src/routes/products");
+const scentedSticksRoutes = require("./src/routes/scentedSticks");
+const perfumesRoutes = require("./src/routes/perfumes");
 const offerRoutes = require("./src/routes/offers");
 const settingsRoutes = require("./src/routes/settings");
 const emailRoutes = require("./src/routes/emails");
@@ -31,7 +33,9 @@ app.use(cors({
       "https://cozycreations.in", 
       "https://www.cozycreations.in",
       "https://cozy-creations-32109.web.app",
-      "https://cozy-creations-32109.firebaseapp.com"
+      "https://cozy-creations-32109.firebaseapp.com",
+      "https://test-cozycreations.web.app",
+      "https://test-cozycreations.firebaseapp.com"
     ];
     if (allowed.includes(origin)) return callback(null, true);
     callback(new Error(`CORS blocked: ${origin}`));
@@ -58,6 +62,8 @@ app.get("/health", (req, res) => {
 app.use("/api/admin", adminRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/scented-sticks", scentedSticksRoutes);
+app.use("/api/perfumes", perfumesRoutes);
 app.use("/api/offers", offerRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/shipping", shippingRoutes);

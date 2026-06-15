@@ -1,6 +1,12 @@
 const { db } = require("../config/firebase");
 const shippingService = require("./shippingService");
 
+// Standard shipping weight for Attar & Dhoop Stick variants.
+// Shiprocket bills in 500g slabs, so one fixed weight covers all variants
+// (e.g., a 3ml attar bottle and a 100ml bottle are both under 500g including packaging).
+// In the future this can be made configurable via admin settings.
+const DEFAULT_VARIANT_SHIPPING_WEIGHT_GRAMS = 500;
+
 function createError(status, message, code) {
   const err = new Error(message);
   err.status = status;
@@ -72,9 +78,17 @@ function normalizeRequestedItems(items) {
       throw createError(400, "Invalid item quantity", "INVALID_ITEMS");
     }
 
+    // productType tells us which Firestore collection to look up:
+    // 'candle' → products, 'scented-stick' → scented-sticks, 'perfume' → perfumes
+    const productType = ["candle", "scented-stick", "perfume"].includes(item.productType)
+      ? item.productType
+      : "candle"; // default to candle for backward compatibility
+
     return {
       productId: item.productId,
       quantity,
+      productType,
+      variantLabel: item.variantLabel ? String(item.variantLabel).trim() : null,
       customization: item.customization || null,
     };
   });
@@ -91,7 +105,7 @@ function offerAppliesToProduct(offer, product) {
 function computeSingleOfferDiscount(product, offer) {
   const originalPrice = toCurrency(product.price);
   if (!offerAppliesToProduct(offer, product)) {
-    return { originalPrice, price: originalPrice, discountPerUnit: 0 };
+    return { originalPrice, price: originalPrice, discountPerUnit: 0, offerName: null };
   }
 
   let discountAmount = 0;
@@ -102,7 +116,7 @@ function computeSingleOfferDiscount(product, offer) {
   }
 
   const price = Math.max(0, originalPrice - discountAmount);
-  return { originalPrice, price, discountPerUnit: Math.max(0, originalPrice - price) };
+  return { originalPrice, price, discountPerUnit: Math.max(0, originalPrice - price), offerName: offer.offerHeading || offer.offerText || offer.id || null };
 }
 
 // Best Price Wins: iterate all active offers, apply the one with the maximum discount
@@ -110,7 +124,7 @@ function computeDiscountedUnitPrice(product, offers) {
   const originalPrice = toCurrency(product.price);
   const offersList = Array.isArray(offers) ? offers : (offers ? [offers] : []);
 
-  let bestResult = { originalPrice, price: originalPrice, discountPerUnit: 0 };
+  let bestResult = { originalPrice, price: originalPrice, discountPerUnit: 0, offerName: null };
   for (const offer of offersList) {
     const result = computeSingleOfferDiscount(product, offer);
     if (result.discountPerUnit > bestResult.discountPerUnit) {
@@ -170,17 +184,40 @@ async function fetchSettingsAndOffers() {
   };
 }
 
-async function fetchProductsMap(productIds) {
-  const productDocs = await Promise.all(
-    productIds.map((productId) => db.collection("products").doc(productId).get())
-  );
+// Map productType to its Firestore collection name
+function getCollectionForType(productType) {
+  switch (productType) {
+    case "scented-stick": return "scented-sticks";
+    case "perfume":        return "perfumes";
+    default:              return "products"; // 'candle' and legacy
+  }
+}
+
+async function fetchProductsMap(items) {
+  // Group items by their collection so we batch per collection
+  const byCollection = {};
+  for (const item of items) {
+    const col = getCollectionForType(item.productType);
+    if (!byCollection[col]) byCollection[col] = [];
+    byCollection[col].push(item.productId);
+  }
 
   const productsMap = new Map();
-  productDocs.forEach((docSnap) => {
-    if (docSnap.exists) {
-      productsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
-    }
-  });
+
+  await Promise.all(
+    Object.entries(byCollection).map(async ([col, ids]) => {
+      const uniqueIds = [...new Set(ids)];
+      const docSnaps = await Promise.all(
+        uniqueIds.map((id) => db.collection(col).doc(id).get())
+      );
+      docSnaps.forEach((docSnap) => {
+        if (docSnap.exists) {
+          productsMap.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
+        }
+      });
+    })
+  );
+
   return productsMap;
 }
 
@@ -258,7 +295,7 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
   }
 
   const productIds = [...new Set(items.map((item) => item.productId))];
-  const productsMap = await fetchProductsMap(productIds);
+  const productsMap = await fetchProductsMap(items);
 
   const canonicalItems = items.map((requestedItem) => {
     const product = productsMap.get(requestedItem.productId);
@@ -266,7 +303,40 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
       throw createError(400, `Product unavailable: ${requestedItem.productId}`, "PRODUCT_UNAVAILABLE");
     }
 
+    // --- Variant-aware price resolution ---
+    // For Attar / Dhoop Sticks that use the variants array:
+    const { variantLabel } = requestedItem;
+    
+    let defaultWeightForType = DEFAULT_VARIANT_SHIPPING_WEIGHT_GRAMS;
+    if (variantLabel) {
+      if (requestedItem.productType === "perfume" && delivery?.attarWeights?.[variantLabel]) {
+        defaultWeightForType = Number(delivery.attarWeights[variantLabel]);
+      } else if (requestedItem.productType === "scented-stick") {
+        const parsedWeight = parseInt(variantLabel.replace(/[^0-9]/g, ""), 10);
+        if (!isNaN(parsedWeight) && parsedWeight > 0) {
+          defaultWeightForType = parsedWeight;
+        }
+      }
+    }
+
+    let resolvedPrice = null;
+    let resolvedWeightGrams = Number(product.weightGrams) || defaultWeightForType;
+
+    if (variantLabel && Array.isArray(product.variants) && product.variants.length > 0) {
+      const variant = product.variants.find((v) => v.label === variantLabel);
+      if (variant) {
+        resolvedPrice = toCurrency(variant.price);
+        // Use variant.weightGrams if explicitly set, otherwise use the configured standard size weight
+        resolvedWeightGrams = Number(variant.weightGrams) || defaultWeightForType;
+      }
+    }
+
+    if (resolvedPrice !== null) {
+      product.price = resolvedPrice;
+    }
+
     const pricing = computeDiscountedUnitPrice(product, offers);
+
     return {
       productId: product.id,
       name: product.name || "Product",
@@ -274,11 +344,14 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
       price: pricing.price,
       originalPrice: pricing.originalPrice,
       discountPerUnit: pricing.discountPerUnit,
+      offerName: pricing.offerName || null,
       image: product.thumbnailUrl || product.imageUrl || "",
       imageUrl: product.imageUrl || "",
       thumbnailUrl: product.thumbnailUrl || product.imageUrl || "",
       category: product.category || null,
-      weightGrams: Number(product.weightGrams) || 0,
+      productType: requestedItem.productType,
+      variantLabel: variantLabel || null,
+      weightGrams: resolvedWeightGrams,
       dimensions: product.dimensions || null,
       quantityPack: Number(product.quantityPack) || 1,
       customization: requestedItem.customization || null,
@@ -316,8 +389,13 @@ async function buildCanonicalOrder({ payload, paymentMethod, user }) {
     courierName: shipping.courierName,
     paymentMethod,
     pricingSource: {
-      offerApplied: offers.some(o => o?.isActive && o?.hasDiscount),
-      offersCount: offers.length,
+      offerApplied: discountTotal > 0,
+      appliedOffersCount: canonicalItems.filter(i => i.discountPerUnit > 0).length,
+      appliedOfferNames: [...new Set(
+        canonicalItems
+          .filter(i => i.offerName)
+          .map(i => i.offerName)
+      )],
       shippingSource: shipping.shippingSource,
     },
   };

@@ -10,6 +10,24 @@ exports.getPublicProducts = async (req, res) => {
   }
 };
 
+exports.getPublicScentedSticks = async (req, res) => {
+  try {
+    const snap = await db.collection("scented-sticks").where("isActive", "!=", false).get();
+    res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.getPublicPerfumes = async (req, res) => {
+  try {
+    const snap = await db.collection("perfumes").where("isActive", "!=", false).get();
+    res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.calculateDiscount = async (req, res) => {
   try {
     const { productId, productPrice, category } = req.body;

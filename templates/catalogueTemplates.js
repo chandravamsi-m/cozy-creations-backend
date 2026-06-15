@@ -72,13 +72,12 @@ const formatProductName = (name) => {
 // Helper to build product description
 const buildDescription = (product) => {
   const weight = product.weightGrams || '?';
-  const burnTime = product.burnTimeHours || '?';
   // Get wax type from product, capitalize first letter, default to 'Soy'
   const waxType = product.waxType 
     ? product.waxType.charAt(0).toUpperCase() + product.waxType.slice(1)
     : 'Soy';
   const dimensionsPart = product.dimensions ? `(${product.dimensions})` : '';
-  return `| Natural ${waxType} Wax |<br>Aromatherapy Candle | Perfect for Home Decor & Gifting${dimensionsPart}(${weight}g - ${burnTime}hrs)`;
+  return `| Natural ${waxType} Wax |<br>Aromatherapy Candle | Perfect for Home Decor & Gifting${dimensionsPart}(${weight}g)`;
 };
 
 // Helper to build badge text

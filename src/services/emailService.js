@@ -111,6 +111,7 @@ function buildItemTable(items) {
            style="width:52px; height:52px; object-fit:cover; border-radius:10px; display:block; border:1px solid ${BRAND.border};" />`
       : `<div style="width:52px; height:52px; background:${BRAND.light}; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:22px; border:1px solid ${BRAND.border};">🕯️</div>`;
 
+    const variantText = item.variantLabel ? `<p style="margin:2px 0 0; font-size:11px; color:${BRAND.muted}; font-family: Arial, sans-serif;">Size: ${escapeHtml(String(item.variantLabel))}</p>` : "";
     rows += `
       <tr>
         <td style="padding: 14px 12px; border-bottom: 1px solid ${BRAND.border};">
@@ -118,6 +119,7 @@ function buildItemTable(items) {
             <td style="padding-right:12px; vertical-align:middle;">${imgHtml}</td>
             <td style="vertical-align:middle;">
               <p style="margin:0; font-size:13px; font-weight:600; color:${BRAND.dark}; font-family: Arial, sans-serif;">${escapeHtml(item.name)}</p>
+              ${variantText}
               ${item.customization ? `<p style="margin:3px 0 0; font-size:11px; color:${BRAND.muted}; font-family: Arial, sans-serif;">Note: ${escapeHtml(item.customization)}</p>` : ""}
             </td>
           </tr></table>
@@ -213,12 +215,12 @@ async function sendOrderConfirmationEmail(email, orderData) {
     html: wrapLayout(
       "Your Order is Confirmed!",
       `
-        <p style="margin:0 0 20px; color:#555;">Thank you for your order! We're now preparing your candles with love and care. You'll receive another update once your package is on its way.</p>
+        <p style="margin:0 0 20px; color:#555;">Thank you for your order! We're now preparing it with love and care. You'll receive another update once your package is on its way.</p>
         <p style="margin:0 0 12px; font-size:13px; font-weight:700; color:${BRAND.muted}; letter-spacing:2px; text-transform:uppercase;">Order Summary</p>
         ${table}
         ${billing}
         <div style="margin-top:28px; padding:20px; background:${BRAND.light}; border-radius:12px; border-left:4px solid ${BRAND.yellow};">
-          <p style="margin:0; font-size:13px; color:${BRAND.muted};">🕯️ Each candle is made by hand, just for you. We appreciate your patience as we craft your order.</p>
+          <p style="margin:0; font-size:13px; color:${BRAND.muted};">🕯️ Each product is crafted by hand, just for you. We appreciate your patience as we prepare your order.</p>
         </div>
       `,
       safeName
