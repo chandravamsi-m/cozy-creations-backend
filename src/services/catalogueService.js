@@ -136,7 +136,6 @@ async function prefetchProductImages(products) {
 async function _launchBrowser() {
   const browser = await puppeteer.launch({
     headless: "new",
-    executablePath: puppeteer.executablePath(),
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",

@@ -35,7 +35,6 @@ const ALLOWED_PRODUCT_FIELDS = [
   "price",
   "weightGrams",
   "waxType",
-  "burnTimeHours",
   "dimensions",
   "dimensionUnit",
   "quantityPack",
