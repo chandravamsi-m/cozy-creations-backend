@@ -26,8 +26,16 @@ function verifySignature(orderId, paymentId, signature) {
 async function createOrderRecord({ orderData, paymentId = null, paymentOrderId = null }) {
   const orderRef = db.collection("orders").doc();
 
+  const getCollectionForType = (type) => {
+    switch (type) {
+      case "scented-stick": return "scented-sticks";
+      case "perfume": return "perfumes";
+      default: return "products";
+    }
+  };
+
   await db.runTransaction(async (transaction) => {
-    const productRefs = orderData.items.map((item) => db.collection("products").doc(item.productId));
+    const productRefs = orderData.items.map((item) => db.collection(getCollectionForType(item.productType)).doc(item.productId));
     const productSnaps = await Promise.all(productRefs.map((ref) => transaction.get(ref)));
 
     productSnaps.forEach((productSnap, index) => {

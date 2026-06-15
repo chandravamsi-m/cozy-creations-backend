@@ -16,12 +16,26 @@ router.use(async (req, res, next) => {
 // Dashboard
 router.get("/dashboard-stats", adminController.getDashboardStats);
 
-// Products
+// Products (Candles)
 router.get("/products", adminController.getProducts);
 router.post("/products", adminController.createProduct);
 router.patch("/products/:id", adminController.updateProduct);
 router.delete("/products/:id", adminController.softDeleteProduct);
 router.delete("/products/:id/permanent", adminController.permanentDeleteProduct);
+
+// Scented Sticks (Agarbatti)
+router.get("/scented-sticks", adminController.getScentedSticks);
+router.post("/scented-sticks", adminController.createScentedStick);
+router.patch("/scented-sticks/:id", adminController.updateScentedStick);
+router.delete("/scented-sticks/:id", adminController.softDeleteScentedStick);
+router.delete("/scented-sticks/:id/permanent", adminController.permanentDeleteScentedStick);
+
+// Perfumes / Attar
+router.get("/perfumes", adminController.getPerfumes);
+router.post("/perfumes", adminController.createPerfume);
+router.patch("/perfumes/:id", adminController.updatePerfume);
+router.delete("/perfumes/:id", adminController.softDeletePerfume);
+router.delete("/perfumes/:id/permanent", adminController.permanentDeletePerfume);
 
 // Offers — full CRUD
 router.get("/offers", offerController.listAllOffers);
