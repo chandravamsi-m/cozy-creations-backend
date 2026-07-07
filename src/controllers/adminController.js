@@ -44,6 +44,7 @@ const ALLOWED_PRODUCT_FIELDS = [
   "imageUrl",
   "thumbnailUrl",
   "images",
+  "videoUrl",
   "isActive",
   "bulkPricingTiers",
 ];
@@ -839,7 +840,7 @@ exports.updatePaymentSettings = async (req, res) => {
 
 const ALLOWED_SCENTED_STICK_FIELDS = [
   "name", "scentFamily", "ingredients", "altText",
-  "imageUrl", "thumbnailUrl", "images", "isActive", "variants",
+  "imageUrl", "thumbnailUrl", "images", "videoUrl", "isActive", "variants",
 ];
 
 // Default sizes for Dhoop Sticks
@@ -975,7 +976,7 @@ exports.permanentDeleteScentedStick = async (req, res) => {
 const ALLOWED_PERFUME_FIELDS = [
   "name", "scentFamily", "scentNotes", "longevityHours",
   "isAlcoholFree", "ingredients", "altText", "imageUrl",
-  "thumbnailUrl", "images", "isActive", "variants",
+  "thumbnailUrl", "images", "videoUrl", "isActive", "variants",
 ];
 
 // Default sizes for Attar
