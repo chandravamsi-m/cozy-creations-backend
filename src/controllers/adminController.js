@@ -25,6 +25,9 @@ async function isImageInUse(url, excludeProductId = null) {
     
     const snap2 = await db.collection(col).where("images", "array-contains", url).limit(2).get();
     for (const doc of snap2.docs) if (doc.id !== excludeProductId) return true;
+
+    const snap3 = await db.collection(col).where("videoUrl", "==", url).limit(2).get();
+    for (const doc of snap3.docs) if (doc.id !== excludeProductId) return true;
   }
   return false;
 }
@@ -44,6 +47,7 @@ const ALLOWED_PRODUCT_FIELDS = [
   "imageUrl",
   "thumbnailUrl",
   "images",
+  "videoUrl",
   "isActive",
   "bulkPricingTiers",
 ];
@@ -333,17 +337,20 @@ exports.updateProduct = async (req, res) => {
     // If neither imageUrl nor images is present, it means no image change was made — skip cleanup.
     const payloadHasImages = Object.prototype.hasOwnProperty.call(req.body.product, 'imageUrl') ||
       Object.prototype.hasOwnProperty.call(req.body.product, 'images') ||
+      Object.prototype.hasOwnProperty.call(req.body.product, 'videoUrl') ||
       (req.body.product?.imageBuffer && typeof req.body.product.imageBuffer === 'string');
 
     if (payloadHasImages) {
       const oldUrls = new Set();
       if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
+      if (oldData.videoUrl) oldUrls.add(oldData.videoUrl);
       if (Array.isArray(oldData.images)) {
         oldData.images.forEach(url => { if (url) oldUrls.add(url); });
       }
 
       const newUrls = new Set();
       if (normalizedProduct.imageUrl) newUrls.add(normalizedProduct.imageUrl);
+      if (normalizedProduct.videoUrl) newUrls.add(normalizedProduct.videoUrl);
       if (Array.isArray(normalizedProduct.images)) {
         normalizedProduct.images.forEach(url => { if (url) newUrls.add(url); });
       }
@@ -357,10 +364,11 @@ exports.updateProduct = async (req, res) => {
           if (await isImageInUse(url, req.params.id)) return;
           const publicId = extractCloudinaryPublicId(url);
           if (publicId) {
-            await cloudinary.uploader.destroy(publicId);
+            const resourceType = url.includes('/video/') ? 'video' : 'image';
+            await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
           }
         } catch (cleanupErr) {
-          console.error(`Failed to cleanup orphaned image ${url}:`, cleanupErr.message);
+          console.error(`Failed to cleanup orphaned image/video ${url}:`, cleanupErr.message);
         }
       }));
     }
@@ -391,9 +399,10 @@ exports.permanentDeleteProduct = async (req, res) => {
   try {
     const productDoc = await db.collection("products").doc(req.params.id).get();
     if (productDoc.exists) {
-      const { imageUrl, images } = productDoc.data();
+      const { imageUrl, images, videoUrl } = productDoc.data();
       const urlsToDelete = new Set();
       if (imageUrl) urlsToDelete.add(imageUrl);
+      if (videoUrl) urlsToDelete.add(videoUrl);
       if (Array.isArray(images)) images.forEach(url => { if (url) urlsToDelete.add(url); });
       
       // Parallelize Cloudinary deletions to improve performance
@@ -401,9 +410,12 @@ exports.permanentDeleteProduct = async (req, res) => {
         try {
           if (await isImageInUse(url, req.params.id)) return;
           const publicId = extractCloudinaryPublicId(url);
-          if (publicId) await cloudinary.uploader.destroy(publicId);
+          if (publicId) {
+            const resourceType = url.includes('/video/') ? 'video' : 'image';
+            await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+          }
         } catch (cleanupErr) {
-          console.error("Failed to cleanup image on permanent delete:", cleanupErr.message);
+          console.error("Failed to cleanup image/video on permanent delete:", cleanupErr.message);
         }
       }));
     }
@@ -839,7 +851,7 @@ exports.updatePaymentSettings = async (req, res) => {
 
 const ALLOWED_SCENTED_STICK_FIELDS = [
   "name", "scentFamily", "ingredients", "altText",
-  "imageUrl", "thumbnailUrl", "images", "isActive", "variants",
+  "imageUrl", "thumbnailUrl", "images", "videoUrl", "isActive", "variants",
 ];
 
 // Default sizes for Dhoop Sticks
@@ -914,21 +926,27 @@ exports.updateScentedStick = async (req, res) => {
     // Only run image cleanup if the update actually contains image fields
     const payloadHasImages = Object.prototype.hasOwnProperty.call(req.body.product, 'imageUrl') ||
       Object.prototype.hasOwnProperty.call(req.body.product, 'images') ||
+      Object.prototype.hasOwnProperty.call(req.body.product, 'videoUrl') ||
       (req.body.product?.imageBuffer && typeof req.body.product.imageBuffer === 'string');
 
     if (payloadHasImages) {
       const oldUrls = new Set();
       if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
+      if (oldData.videoUrl) oldUrls.add(oldData.videoUrl);
       if (Array.isArray(oldData.images)) oldData.images.forEach(u => { if (u) oldUrls.add(u); });
       const newUrls = new Set();
       if (normalized.imageUrl) newUrls.add(normalized.imageUrl);
+      if (normalized.videoUrl) newUrls.add(normalized.videoUrl);
       if (Array.isArray(normalized.images)) normalized.images.forEach(u => { if (u) newUrls.add(u); });
       const removedUrls = [...oldUrls].filter(u => !newUrls.has(u));
       await Promise.all(removedUrls.map(async (url) => {
         try {
           if (await isImageInUse(url, req.params.id)) return;
           const pid = extractCloudinaryPublicId(url);
-          if (pid) await cloudinary.uploader.destroy(pid);
+          if (pid) {
+            const resourceType = url.includes('/video/') ? 'video' : 'image';
+            await cloudinary.uploader.destroy(pid, { resource_type: resourceType });
+          }
         } catch (e) { console.error("Cloudinary cleanup failed:", e.message); }
       }));
     }
@@ -951,15 +969,19 @@ exports.permanentDeleteScentedStick = async (req, res) => {
   try {
     const docSnap = await db.collection("scented-sticks").doc(req.params.id).get();
     if (docSnap.exists) {
-      const { imageUrl, images } = docSnap.data();
+      const { imageUrl, images, videoUrl } = docSnap.data();
       const urlsToDelete = new Set();
       if (imageUrl) urlsToDelete.add(imageUrl);
+      if (videoUrl) urlsToDelete.add(videoUrl);
       if (Array.isArray(images)) images.forEach(u => { if (u) urlsToDelete.add(u); });
       await Promise.all([...urlsToDelete].map(async (url) => {
         try {
           if (await isImageInUse(url, req.params.id)) return;
           const pid = extractCloudinaryPublicId(url);
-          if (pid) await cloudinary.uploader.destroy(pid);
+          if (pid) {
+            const resourceType = url.includes('/video/') ? 'video' : 'image';
+            await cloudinary.uploader.destroy(pid, { resource_type: resourceType });
+          }
         } catch (e) { console.error("Cloudinary deletion failed:", e.message); }
       }));
     }
@@ -975,7 +997,7 @@ exports.permanentDeleteScentedStick = async (req, res) => {
 const ALLOWED_PERFUME_FIELDS = [
   "name", "scentFamily", "scentNotes", "longevityHours",
   "isAlcoholFree", "ingredients", "altText", "imageUrl",
-  "thumbnailUrl", "images", "isActive", "variants",
+  "thumbnailUrl", "images", "videoUrl", "isActive", "variants",
 ];
 
 // Default sizes for Attar
@@ -1058,21 +1080,27 @@ exports.updatePerfume = async (req, res) => {
     // Only run image cleanup if the update actually contains image fields
     const payloadHasImages = Object.prototype.hasOwnProperty.call(req.body.product, 'imageUrl') ||
       Object.prototype.hasOwnProperty.call(req.body.product, 'images') ||
+      Object.prototype.hasOwnProperty.call(req.body.product, 'videoUrl') ||
       (req.body.product?.imageBuffer && typeof req.body.product.imageBuffer === 'string');
 
     if (payloadHasImages) {
       const oldUrls = new Set();
       if (oldData.imageUrl) oldUrls.add(oldData.imageUrl);
+      if (oldData.videoUrl) oldUrls.add(oldData.videoUrl);
       if (Array.isArray(oldData.images)) oldData.images.forEach(u => { if (u) oldUrls.add(u); });
       const newUrls = new Set();
       if (normalized.imageUrl) newUrls.add(normalized.imageUrl);
+      if (normalized.videoUrl) newUrls.add(normalized.videoUrl);
       if (Array.isArray(normalized.images)) normalized.images.forEach(u => { if (u) newUrls.add(u); });
       const removedUrls = [...oldUrls].filter(u => !newUrls.has(u));
       await Promise.all(removedUrls.map(async (url) => {
         try {
           if (await isImageInUse(url, req.params.id)) return;
           const pid = extractCloudinaryPublicId(url);
-          if (pid) await cloudinary.uploader.destroy(pid);
+          if (pid) {
+            const resourceType = url.includes('/video/') ? 'video' : 'image';
+            await cloudinary.uploader.destroy(pid, { resource_type: resourceType });
+          }
         } catch (e) { console.error("Cloudinary cleanup failed:", e.message); }
       }));
     }
@@ -1095,20 +1123,53 @@ exports.permanentDeletePerfume = async (req, res) => {
   try {
     const docSnap = await db.collection("perfumes").doc(req.params.id).get();
     if (docSnap.exists) {
-      const { imageUrl, images } = docSnap.data();
+      const { imageUrl, images, videoUrl } = docSnap.data();
       const urlsToDelete = new Set();
       if (imageUrl) urlsToDelete.add(imageUrl);
+      if (videoUrl) urlsToDelete.add(videoUrl);
       if (Array.isArray(images)) images.forEach(u => { if (u) urlsToDelete.add(u); });
       await Promise.all([...urlsToDelete].map(async (url) => {
         try {
           if (await isImageInUse(url, req.params.id)) return;
           const pid = extractCloudinaryPublicId(url);
-          if (pid) await cloudinary.uploader.destroy(pid);
+          if (pid) {
+            const resourceType = url.includes('/video/') ? 'video' : 'image';
+            await cloudinary.uploader.destroy(pid, { resource_type: resourceType });
+          }
         } catch (e) { console.error("Cloudinary deletion failed:", e.message); }
       }));
     }
     await db.collection("perfumes").doc(req.params.id).delete();
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+};
+
+exports.generateCloudinarySignature = (req, res) => {
+  try {
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    const eager = "q_auto,f_auto,vc_auto,w_1080";
+    const eager_async = "true";
+    const paramsToSign = {
+      timestamp,
+      eager,
+      eager_async
+    };
+    
+    // We assume cloudinary is already configured with API_SECRET in index.js or adminController
+    const cloudinary = require("cloudinary").v2;
+    const signature = cloudinary.utils.api_sign_request(paramsToSign, process.env.CLOUDINARY_API_SECRET);
+
+    res.json({
+      signature,
+      timestamp,
+      eager,
+      eager_async,
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME
+    });
+  } catch (err) {
+    console.error("Cloudinary Signature Error:", err);
+    res.status(500).json({ error: err.message });
+  }
 };
 
