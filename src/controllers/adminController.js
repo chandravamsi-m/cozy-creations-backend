@@ -1113,3 +1113,32 @@ exports.permanentDeletePerfume = async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 };
 
+exports.generateCloudinarySignature = (req, res) => {
+  try {
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    const eager = "q_auto,f_auto,vc_auto,w_1080";
+    const eager_async = "true";
+    const paramsToSign = {
+      timestamp,
+      eager,
+      eager_async
+    };
+    
+    // We assume cloudinary is already configured with API_SECRET in index.js or adminController
+    const cloudinary = require("cloudinary").v2;
+    const signature = cloudinary.utils.api_sign_request(paramsToSign, process.env.CLOUDINARY_API_SECRET);
+
+    res.json({
+      signature,
+      timestamp,
+      eager,
+      eager_async,
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME
+    });
+  } catch (err) {
+    console.error("Cloudinary Signature Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+

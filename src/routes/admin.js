@@ -13,6 +13,9 @@ router.use(async (req, res, next) => {
   res.status(403).json({ error: "Access Denied" });
 });
 
+// Cloudinary Signature
+router.get("/cloudinary-signature", adminController.generateCloudinarySignature);
+
 // Dashboard
 router.get("/dashboard-stats", adminController.getDashboardStats);
 
