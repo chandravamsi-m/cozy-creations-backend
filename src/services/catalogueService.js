@@ -25,14 +25,13 @@ const CATALOGUE_STATIC_URLS = [
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/linesright_hk7t3j.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/linesleft_gx8o8w.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/candlestick_ljryjs.svg',
-  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548513/lamp_svjx60.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770618965/Vector_iajl4o.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548599/heroimage_ueotan.jpg',
-  'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548514/logo_wq2xws.svg',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1788500146/cc-logo-full_kxesev.png',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548517/topcandle_mduuda.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548487/bottomcandle_y5u5y5.svg',
   'https://res.cloudinary.com/dumkblp3v/image/upload/v1770548486/candlelogo_c3qvmb.svg',
-  'https://res.cloudinary.com/dumkblp3v/image/upload/v1767176149/unnamed-7_j6fal6.webp',
+  'https://res.cloudinary.com/dumkblp3v/image/upload/v1788458917/ChatGPT_Image_Sep_3_2026_11_27_18_PM_fy6tlm.webp',
 ];
 
 // Map<originalCloudinaryUrl, base64DataUrl> — populated at startup

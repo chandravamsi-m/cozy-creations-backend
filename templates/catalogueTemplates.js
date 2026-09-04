@@ -165,7 +165,9 @@ function generateWelcomePage() {
     }
     .logo {
       position: absolute;
-      width: 300px;
+      top: 16px;
+      left: 16px;
+      width: 130px;
       height: auto;
       z-index: 5;
     }
@@ -174,7 +176,7 @@ function generateWelcomePage() {
       height: 35%;
       background-color: var(--bg-color);
       position: relative;
-      padding: 32px 40px 40px 32px;
+      padding: 32px 40px 40px 40px;
       display: flex;
       align-items: flex-start;
       justify-content: flex-start;
@@ -184,17 +186,9 @@ function generateWelcomePage() {
       color: var(--text-dark);
       line-height: 1.6;
       letter-spacing: 2px;
-      max-width: 550px;
+      max-width: 600px;
       z-index: 2;
       text-align: left;
-    }
-    .large-lamp {
-      position: absolute;
-      bottom: -40px;
-      right: 0px;
-      width: 180px;
-      height: 640px;
-      z-index: 3;
     }
   </style>
 </head>
@@ -202,7 +196,7 @@ function generateWelcomePage() {
   ${fontForceLoadHtml}
   <div class="a4-page">
     <div class="hero-section">
-      <img src="https://res.cloudinary.com/dumkblp3v/image/upload/v1770548514/logo_wq2xws.svg" alt="Cozy Creations Logo" class="logo">
+      <img src="https://res.cloudinary.com/dumkblp3v/image/upload/v1788500146/cc-logo-full_kxesev.png" alt="Cozy Creations Logo" class="logo">
       <div class="hero-overlay-text">
       </div>
     </div>
@@ -212,7 +206,6 @@ function generateWelcomePage() {
         Welcome to Cozy Creations—hand-poured soy and gel candles made with premium, chemical-free fragrances.
         Beautiful, fragrant, and budget-friendly—crafted to brighten every space.
       </div>
-      <img src="${lampUrl}" alt="Decorative Lamp" class="large-lamp">
     </div>
   </div>
 </body>
@@ -565,7 +558,7 @@ function generateCustomizationPage() {
     <img src="${linesRightUrl}" alt="" class="lines-decoration">
 
     <div class="hero-container">
-      <img src="https://res.cloudinary.com/dumkblp3v/image/upload/v1767176149/unnamed-7_j6fal6.webp" alt="Cozy Creations Collection" class="hero-image">
+      <img src="https://res.cloudinary.com/dumkblp3v/image/upload/v1788458917/ChatGPT_Image_Sep_3_2026_11_27_18_PM_fy6tlm.webp" alt="Cozy Creations Collection" class="hero-image">
     </div>
 
     <img src="${candlestickUrl}" alt="" class="candlestick-decoration">
